@@ -31,7 +31,7 @@ static __global__ void mul_mat_vec(
 
     float sumf = 0.0f;
 
-    if constexpr (std::is_same<T, half>::value) {
+    if (std::is_same<T, half>::value) {
         const half2 * x2 = (const half2 *) x;
 
         if (std::is_same<type_acc, float>::value) {
@@ -57,7 +57,7 @@ static __global__ void mul_mat_vec(
             NO_DEVICE_CODE;
 #endif // FP16_AVAILABLE
         }
-    } else if constexpr (std::is_same<T, nv_bfloat16>::value) {
+    } else if (std::is_same<T, nv_bfloat16>::value) {
         const int * x2 = (const int *) x;
         sumf = 0.0f;
 
@@ -68,7 +68,7 @@ static __global__ void mul_mat_vec(
             sumf += float(reinterpret_cast<const nv_bfloat16 *>(&tmpx)[1]) * tmpy.y;
         }
     } else {
-        static_assert(std::is_same<T, void>::value, "unsupported type");
+        //static_assert(std::is_same<T, void>::value, "unsupported type");
     }
 
     sumf = warp_reduce_sum<warp_size>(sumf);

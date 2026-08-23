@@ -26,8 +26,8 @@ static __global__ void norm_f32(
 
     // sum up partial sums
     mean_var = warp_reduce_sum(mean_var);
-    if constexpr (block_size > WARP_SIZE) {
-        static_assert(block_size == 1024, "unexpected block_size");
+    if (block_size > WARP_SIZE) {
+        //static_assert(block_size == 1024, "unexpected block_size");
         __shared__ float2 s_sum[32];
         const int warp_id = threadIdx.x / WARP_SIZE;
         const int lane_id = threadIdx.x % WARP_SIZE;
@@ -62,8 +62,8 @@ static __global__ void group_norm_f32(const float * x, float * dst, const int gr
     }
 
     tmp = warp_reduce_sum(tmp);
-    if constexpr (block_size > WARP_SIZE) {
-        static_assert(block_size == 1024, "unexpected block_size");
+    if (block_size > WARP_SIZE) {
+        //static_assert(block_size == 1024, "unexpected block_size");
         __shared__ float s_sum[32];
         const int warp_id = threadIdx.x / WARP_SIZE;
         const int lane_id = threadIdx.x % WARP_SIZE;
@@ -128,8 +128,8 @@ static __global__ void rms_norm_f32(
 
     // sum up partial sums
     tmp = warp_reduce_sum(tmp);
-    if constexpr (block_size > WARP_SIZE) {
-        static_assert(block_size == 1024, "unexpected block_size");
+    if (block_size > WARP_SIZE) {
+        //static_assert(block_size == 1024, "unexpected block_size");
         __shared__ float s_sum[32];
         const int warp_id = threadIdx.x / WARP_SIZE;
         const int lane_id = threadIdx.x % WARP_SIZE;
@@ -171,8 +171,8 @@ static __global__ void rms_norm_back_f32(
     // sum up partial sums
     sum_xx = warp_reduce_sum(sum_xx);
     sum_xg = warp_reduce_sum(sum_xg);
-    if constexpr (block_size > WARP_SIZE) {
-        static_assert(block_size == 1024, "unexpected block_size");
+    if (block_size > WARP_SIZE) {
+        //static_assert(block_size == 1024, "unexpected block_size");
         __shared__ float s_sum_xx[32];
         __shared__ float s_sum_xg[32];
         const int warp_id = threadIdx.x / WARP_SIZE;
@@ -259,8 +259,8 @@ static __global__ void l2_norm_f32(
 
     // sum up partial sums
     tmp = warp_reduce_sum(tmp);
-    if constexpr (block_size > WARP_SIZE) {
-        static_assert(block_size == 1024, "unexpected block_size");
+    if (block_size > WARP_SIZE) {
+        //static_assert(block_size == 1024, "unexpected block_size");
         __shared__ float s_sum[32];
         const int warp_id = threadIdx.x / WARP_SIZE;
         const int lane_id = threadIdx.x % WARP_SIZE;

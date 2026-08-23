@@ -128,8 +128,6 @@ static constexpr __host__ __device__ int calc_rows_per_block(int ncols_y, int ta
 }
 
 template <ggml_type type, int ncols_y>
-// tell the compiler to use as many registers as it wants, see nwarps definition below
-__launch_bounds__(calc_nwarps(ncols_y, get_device_table_id())*ggml_cuda_get_physical_warp_size(), 1)
 static __global__ void mul_mat_vec_q(
     const void * __restrict__ vx, const void * __restrict__ vy, float * __restrict__ dst,
     const int ncols_x, const int nrows_x, const int nrows_y, const int nrows_dst) {

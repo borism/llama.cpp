@@ -45,7 +45,9 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#ifdef __HIP_PLATFORM_AMD__
 #include <charconv>
+#endif
 #include <cinttypes>
 #include <cstddef>
 #include <cstdint>
