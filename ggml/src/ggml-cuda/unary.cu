@@ -1,79 +1,79 @@
 #include "unary.cuh"
 
-static __device__ __forceinline__ float op_abs(float x) {
+__device__ __forceinline__ float op_abs(float x) {
     return fabsf(x);
 }
 
-static __device__ __forceinline__ float op_sgn(float x) {
+__device__ __forceinline__ float op_sgn(float x) {
     return (x > 0.f ? 1.f : ((x < 0.f ? -1.f : 0.f)));
 }
 
-static __device__ __forceinline__ float op_neg(float x) {
+__device__ __forceinline__ float op_neg(float x) {
     return -x;
 }
 
-static __device__ __forceinline__ float op_step(float x) {
+__device__ __forceinline__ float op_step(float x) {
     return x > 0.0f;
 }
 
-static __device__ __forceinline__ float op_gelu(float x) {
+__device__ __forceinline__ float op_gelu(float x) {
     const float GELU_COEF_A    = 0.044715f;
     const float SQRT_2_OVER_PI = 0.79788456080286535587989211986876f;
 
     return 0.5f*x*(1.0f + tanhf(SQRT_2_OVER_PI*x*(1.0f + GELU_COEF_A*x*x)));
 }
 
-static __device__ __forceinline__ float op_gelu_quick(float x) {
+__device__ __forceinline__ float op_gelu_quick(float x) {
     const float GELU_QUICK_COEF = -1.702f;
 
     return x * (1.0f / (1.0f + expf(GELU_QUICK_COEF * x)));
 }
 
-static __device__ __forceinline__ float op_silu(float x) {
+__device__ __forceinline__ float op_silu(float x) {
     return x / (1.0f + expf(-x));
 }
 
-static __device__ __forceinline__ float op_tanh(float x) {
+__device__ __forceinline__ float op_tanh(float x) {
     return tanhf(x);
 }
 
-static __device__ __forceinline__ float op_relu(float x) {
+__device__ __forceinline__ float op_relu(float x) {
     return fmaxf(x, 0);
 }
 
-static __device__ __forceinline__ float op_sigmoid(float x) {
+__device__ __forceinline__ float op_sigmoid(float x) {
     return 1.0f / (1.0f + expf(-x));
 }
 
-static __device__ __forceinline__ float op_hardsigmoid(float x) {
+__device__ __forceinline__ float op_hardsigmoid(float x) {
     return fminf(1.0f, fmaxf(0.0f, (x + 3.0f) / 6.0f));
 }
 
-static __device__ __forceinline__ float op_hardswish(float x) {
+__device__ __forceinline__ float op_hardswish(float x) {
     return x * fminf(1.0f, fmaxf(0.0f, (x + 3.0f) / 6.0f));
 }
 
-static __device__ __forceinline__ float op_exp(float x) {
+__device__ __forceinline__ float op_exp(float x) {
     return expf(x);
 }
 
-static __device__ __forceinline__ float op_sqr(float x) {
+__device__ __forceinline__ float op_sqr(float x) {
     return x * x;
 }
 
-static __device__ __forceinline__ float op_sqrt(float x) {
+__device__ __forceinline__ float op_sqrt(float x) {
     return sqrtf(x);
 }
 
-static __device__ __forceinline__ float op_sin(float x) {
+__device__ __forceinline__ float op_sin(float x) {
     return sinf(x);
 }
 
-static __device__ __forceinline__ float op_cos(float x) {
+__device__ __forceinline__ float op_cos(float x) {
     return cosf(x);
 }
 
-static __device__ __forceinline__ float op_log(float x) {
+__device__ __forceinline__ float op_log(float x) {
     return logf(x);
 }
 
@@ -188,7 +188,7 @@ void ggml_cuda_op_log(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
 
 /* silu_back */
 
-static __device__ __forceinline__ float op_silu_back(float grad, float x) {
+__device__ __forceinline__ float op_silu_back(float grad, float x) {
     const float s = 1.0f / (1.0f + expf(-x));
     return grad * s * (1.0f + x * (1.0f - s));
 }
@@ -235,7 +235,7 @@ void ggml_cuda_op_silu_back(ggml_backend_cuda_context & ctx, ggml_tensor * dst) 
 
 /* leaky relu */
 
-static __device__ __forceinline__ float op_leaky_relu(float x, const float negative_slope) {
+__device__ __forceinline__ float op_leaky_relu(float x, const float negative_slope) {
     return fmaxf(x, 0) + fminf(x, 0.0f) * negative_slope;
 }
 

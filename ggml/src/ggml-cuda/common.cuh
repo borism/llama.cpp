@@ -37,6 +37,66 @@
 #define STRINGIZE_IMPL(...) #__VA_ARGS__
 #define STRINGIZE(...) STRINGIZE_IMPL(__VA_ARGS__)
 
+// TK1-CUDA65-PATCH: CUDA 6.5 (sm_32/Kepler) predates the *_sync warp-shuffle
+// intrinsics (added CUDA 9 for Volta independent thread scheduling). Kepler
+// warps run in lockstep, so dropping to the legacy non-sync shuffle (ignoring
+// the mask) is semantically equivalent on this hardware.
+static __device__ __forceinline__ int __shfl_sync(unsigned mask, int var, int srcLane, int width = warpSize) {
+    (void)mask; return __shfl(var, srcLane, width);
+}
+static __device__ __forceinline__ unsigned int __shfl_sync(unsigned mask, unsigned int var, int srcLane, int width = warpSize) {
+    (void)mask; return __shfl(var, srcLane, width);
+}
+static __device__ __forceinline__ float __shfl_sync(unsigned mask, float var, int srcLane, int width = warpSize) {
+    (void)mask; return __shfl(var, srcLane, width);
+}
+static __device__ __forceinline__ int __shfl_up_sync(unsigned mask, int var, unsigned int delta, int width = warpSize) {
+    (void)mask; return __shfl_up(var, delta, width);
+}
+static __device__ __forceinline__ unsigned int __shfl_up_sync(unsigned mask, unsigned int var, unsigned int delta, int width = warpSize) {
+    (void)mask; return __shfl_up(var, delta, width);
+}
+static __device__ __forceinline__ float __shfl_up_sync(unsigned mask, float var, unsigned int delta, int width = warpSize) {
+    (void)mask; return __shfl_up(var, delta, width);
+}
+static __device__ __forceinline__ int __shfl_down_sync(unsigned mask, int var, unsigned int delta, int width = warpSize) {
+    (void)mask; return __shfl_down(var, delta, width);
+}
+static __device__ __forceinline__ unsigned int __shfl_down_sync(unsigned mask, unsigned int var, unsigned int delta, int width = warpSize) {
+    (void)mask; return __shfl_down(var, delta, width);
+}
+static __device__ __forceinline__ float __shfl_down_sync(unsigned mask, float var, unsigned int delta, int width = warpSize) {
+    (void)mask; return __shfl_down(var, delta, width);
+}
+static __device__ __forceinline__ int __shfl_xor_sync(unsigned mask, int var, int laneMask, int width = warpSize) {
+    (void)mask; return __shfl_xor(var, laneMask, width);
+}
+static __device__ __forceinline__ unsigned int __shfl_xor_sync(unsigned mask, unsigned int var, int laneMask, int width = warpSize) {
+    (void)mask; return __shfl_xor(var, laneMask, width);
+}
+static __device__ __forceinline__ float __shfl_xor_sync(unsigned mask, float var, int laneMask, int width = warpSize) {
+    (void)mask; return __shfl_xor(var, laneMask, width);
+}
+
+// TK1-CUDA65-PATCH: cudaFuncSetAttribute / dynamic-shared-memory opt-in was
+// added in CUDA 9 (Volta). Kepler (sm_32) caps shared memory per block at the
+// default 48KB and has no opt-in mechanism, so this is a correct no-op here.
+#if CUDART_VERSION < 9000
+enum { cudaFuncAttributeMaxDynamicSharedMemorySize = 8 };
+template <typename T>
+static inline cudaError_t cudaFuncSetAttribute(T, int, size_t) {
+    return cudaSuccess;
+}
+#endif // CUDART_VERSION < 9000
+
+// TK1-CUDA65-PATCH: cudaStreamPerThread (the per-thread default stream
+// handle) was added in CUDA 7.0. CUDA 6.5 predates it and this build never
+// compiles with --default-stream=per-thread, so the legacy default stream
+// (0) is the correct equivalent here.
+#if CUDART_VERSION < 7000
+#define cudaStreamPerThread ((cudaStream_t) 0)
+#endif // CUDART_VERSION < 7000
+
 #define WARP_SIZE 32
 #define CUDART_HMAX   11070 // CUDA 11.7, min. ver. for which __hmax and __hmax2 are known to work (may be higher than needed)
 #define CUDART_HMASK  12000 // CUDA 12.0, min. ver. for half2 -> uint mask comparisons
@@ -649,7 +709,7 @@ struct ggml_cuda_pool_alloc {
     T * ptr = nullptr;
     size_t actual_size = 0;
 
-    ggml_cuda_pool_alloc() = default;
+    ggml_cuda_pool_alloc() {}
 
     explicit ggml_cuda_pool_alloc(ggml_cuda_pool & pool) : pool(&pool) {
     }
@@ -744,7 +804,10 @@ struct ggml_backend_cuda_context {
     std::string name;
     cudaEvent_t copy_event = nullptr;
 
-    cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Flatten single-level brace.
+    cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { nullptr };
     cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = {nullptr};
 
     std::unique_ptr<ggml_cuda_graph> cuda_graph;
@@ -786,7 +849,9 @@ struct ggml_backend_cuda_context {
         if (cublas_handles[device] == nullptr) {
             ggml_cuda_set_device(device);
             CUBLAS_CHECK(cublasCreate(&cublas_handles[device]));
+#if CUDART_VERSION >= 9000
             CUBLAS_CHECK(cublasSetMathMode(cublas_handles[device], CUBLAS_TF32_TENSOR_OP_MATH));
+#endif
         }
         return cublas_handles[device];
     }

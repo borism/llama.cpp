@@ -44,8 +44,13 @@ static __device__ __forceinline__ void flash_attn_ext_f16_load_tile(
     // If D is not a power of 2, the rest is loaded synchronously.
     // K/V data is loaded with decreasing granularity for D for better memory bandwidth.
     static_assert(KQ_per_iter % (4*nwarps) == 0, "out of bounds");
+    // TK1-CUDA65-PATCH: range-based for over a braced-init-list crashes
+    // nvcc 6.5's EDG 4.8 frontend (internal error in decl_inits.c). Use an
+    // explicit array + index loop instead.
+    const int strides_k[3] = {WARP_SIZE, WARP_SIZE/2, WARP_SIZE/4};
 #pragma unroll
-    for (int stride_k : {WARP_SIZE, WARP_SIZE/2, WARP_SIZE/4}) {
+    for (int is = 0; is < 3; ++is) {
+        const int stride_k = strides_k[is];
         const int k0_start = stride_k == WARP_SIZE ? k0_sync_start : D/2 - (D/2) % (2*stride_k);
         const int k0_stop  =                                         D/2 - (D/2) % (1*stride_k);
         const int stride_i = WARP_SIZE / stride_k;
@@ -479,8 +484,13 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
     // Temporarily load Q data into tile_K, will be loaded into registers afterwards.
     // The loading is done with decreasing granularity for D for better memory bandwidth.
     const half2 scale_h2 = make_half2(scale, scale);
+    // TK1-CUDA65-PATCH: range-based for over a braced-init-list crashes
+    // nvcc 6.5's EDG 4.8 frontend (internal error in decl_inits.c). Use an
+    // explicit array + index loop instead.
+    const int strides_k[3] = {WARP_SIZE, WARP_SIZE/2, WARP_SIZE/4};
 #pragma unroll
-    for (int stride_k : {WARP_SIZE, WARP_SIZE/2, WARP_SIZE/4}) {
+    for (int is = 0; is < 3; ++is) {
+        const int stride_k = strides_k[is];
         const int k0_start  = stride_k == WARP_SIZE ? 0 : D/2 - (D/2) % (2*stride_k);
         const int k0_stop   =                             D/2 - (D/2) % (1*stride_k);
         const int stride_jc = WARP_SIZE / stride_k;
@@ -745,8 +755,13 @@ static __device__ __forceinline__ void flash_attn_ext_f16_process_tile(
         // The values after that are for the partial results of the individual blocks.
         float2 * dstk_fixup_data = dstk_fixup + gridDim.x*(2*ncols) + blockIdx.x*(ncols*(D/2));
 
+        // TK1-CUDA65-PATCH: range-based for over a braced-init-list crashes
+        // nvcc 6.5's EDG 4.8 frontend (internal error in decl_inits.c). Use an
+        // explicit array + index loop instead.
+        const int strides_k[3] = {WARP_SIZE, WARP_SIZE/2, WARP_SIZE/4};
 #pragma unroll
-        for (int stride_k : {WARP_SIZE, WARP_SIZE/2, WARP_SIZE/4}) {
+        for (int is = 0; is < 3; ++is) {
+            const int stride_k = strides_k[is];
             const int k0_start  = stride_k == WARP_SIZE ? 0 : D/2 - (D/2) % (2*stride_k);
             const int k0_stop   =                             D/2 - (D/2) % (1*stride_k);
             const int stride_jc = WARP_SIZE / stride_k;

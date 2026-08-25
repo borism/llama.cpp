@@ -1,6 +1,6 @@
 #include "clamp.cuh"
 
-static __device__ __forceinline__ float op_clamp(float x, float min, float max) {
+__device__ __forceinline__ float op_clamp(float x, float min, float max) {
     return fminf(fmaxf(x, min), max);
 }
 

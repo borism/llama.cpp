@@ -1,24 +1,24 @@
 #include "binbcast.cuh"
 #include <cstdint>
 
-static __device__ __forceinline__ float op_repeat(const float a, const float b) {
+__device__ __forceinline__ float op_repeat(const float a, const float b) {
     return b;
     GGML_UNUSED(a);
 }
 
-static __device__ __forceinline__ float op_add(const float a, const float b) {
+__device__ __forceinline__ float op_add(const float a, const float b) {
     return a + b;
 }
 
-static __device__ __forceinline__ float op_sub(const float a, const float b) {
+__device__ __forceinline__ float op_sub(const float a, const float b) {
     return a - b;
 }
 
-static __device__ __forceinline__ float op_mul(const float a, const float b) {
+__device__ __forceinline__ float op_mul(const float a, const float b) {
     return a * b;
 }
 
-static __device__ __forceinline__ float op_div(const float a, const float b) {
+__device__ __forceinline__ float op_div(const float a, const float b) {
     return a / b;
 }
 

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)  # for CMAKE_CUDA_ARCHITECTURES
+cmake_minimum_required(VERSION 3.16)  # for CMAKE_CUDA_ARCHITECTURES
 
 find_package(CUDAToolkit)
 
@@ -51,6 +51,14 @@ if (CUDAToolkit_FOUND)
                              ${GGML_SOURCES_CUDA}
                             )
 
+    # TK1-CUDA65-PATCH: libcudart/libcublas for this armhf CUDA 6.5 toolkit live
+    # outside the default linker search path and aren't in ldconfig's cache;
+    # embed an rpath so the runtime loader (and anything transitively linking
+    # against this library) finds them without needing LD_LIBRARY_PATH set.
+    set_target_properties(ggml-cuda PROPERTIES
+        BUILD_RPATH "/usr/local/cuda-6.5/targets/armv7-linux-gnueabihf/lib"
+        INSTALL_RPATH "/usr/local/cuda-6.5/targets/armv7-linux-gnueabihf/lib")
+
     add_compile_definitions(GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE})
 
     if (GGML_CUDA_GRAPHS)
@@ -89,7 +97,7 @@ if (CUDAToolkit_FOUND)
             target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static)
         endif()
     else()
-        target_link_libraries(ggml-cuda PRIVATE CUDA::cudart CUDA::cublas)
+        target_link_libraries(ggml-cuda PUBLIC CUDA::cudart CUDA::cublas)
     endif()
 
     if (GGML_CUDA_NO_VMM)

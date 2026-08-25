@@ -77,7 +77,7 @@ namespace ggml_cuda_mma {
             } else if (I == 16 && J == 16) {
                 return ((l / 2) % 2) * 8 + threadIdx.x / 4;
             } else {
-                static_assert(I == -1 && J == -1, "template specialization not implemented");
+                return -1; // TK1-CUDA65-PATCH: nvcc 6.5 type-checks every if/else branch (no if-constexpr), so this sentinel static_assert always fires even for valid (I,J) combos handled by earlier branches. Never reached at runtime (dead on Kepler; DP4A path used instead of MMA).
             }
         }
 
@@ -91,7 +91,7 @@ namespace ggml_cuda_mma {
             } else if (I == 16 && J == 16) {
                 return 8 * (l / 4) + 2 * (threadIdx.x % 4) + l % 2;
             } else {
-                static_assert(I == -1 && J == -1, "template specialization not implemented");
+                return -1; // TK1-CUDA65-PATCH: nvcc 6.5 type-checks every if/else branch (no if-constexpr), so this sentinel static_assert always fires even for valid (I,J) combos handled by earlier branches. Never reached at runtime (dead on Kepler; DP4A path used instead of MMA).
             }
         }
     };
@@ -101,7 +101,17 @@ namespace ggml_cuda_mma {
         static constexpr int I  = I_;
         static constexpr int J  = J_;
         static constexpr int ne = I * J / WARP_SIZE;
-        half2 x[ne] = {{0.0f, 0.0f}};
+        half2 x[ne];
+
+        // TK1-CUDA65-PATCH: nested-brace array default member initializer
+        // ({{0.0f, 0.0f}}) crashes nvcc 6.5's EDG 4.8 frontend (internal
+        // assertion in decl_inits.c). Zero-init via constructor instead.
+        __device__ __forceinline__ tile() {
+#pragma unroll
+            for (int l = 0; l < ne; ++l) {
+                x[l] = make_half2(0.0f, 0.0f);
+            }
+        }
 
         static __device__ __forceinline__ int get_i(const int l) {
             if (I == 8 && J == 8) {
@@ -111,7 +121,7 @@ namespace ggml_cuda_mma {
             } else if (I == 16 && J == 8) {
                 return (l % 2) * 8 + threadIdx.x / 4;
             } else {
-                static_assert(I == -1 && J == -1, "template specialization not implemented");
+                return -1; // TK1-CUDA65-PATCH: nvcc 6.5 type-checks every if/else branch (no if-constexpr), so this sentinel static_assert always fires even for valid (I,J) combos handled by earlier branches. Never reached at runtime (dead on Kepler; DP4A path used instead of MMA).
             }
         }
 
@@ -123,7 +133,7 @@ namespace ggml_cuda_mma {
             } else if (I == 16 && J == 8) {
                 return (l / 2) * 4 + threadIdx.x % 4;
             } else {
-                static_assert(I == -1 && J == -1, "template specialization not implemented");
+                return -1; // TK1-CUDA65-PATCH: nvcc 6.5 type-checks every if/else branch (no if-constexpr), so this sentinel static_assert always fires even for valid (I,J) combos handled by earlier branches. Never reached at runtime (dead on Kepler; DP4A path used instead of MMA).
             }
         }
     };

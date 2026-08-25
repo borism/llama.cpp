@@ -84,7 +84,17 @@ static __global__ void flash_attn_tile_ext_f32(
     }
     float kqsum[ncols/nwarps] = {0.0f};
 
-    float2 VKQ[ncols/nwarps][(D/2)/WARP_SIZE] = {{{0.0f, 0.0f}}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Use an unrolled loop instead (safest for a struct element type).
+    float2 VKQ[ncols/nwarps][(D/2)/WARP_SIZE];
+#pragma unroll
+    for (int j0 = 0; j0 < ncols; j0 += nwarps) {
+#pragma unroll
+        for (int i0 = 0; i0 < (D/2)/WARP_SIZE; ++i0) {
+            VKQ[j0/nwarps][i0] = make_float2(0.0f, 0.0f);
+        }
+    }
 
     // Convert Q to half2 and store in registers:
     __shared__ float Q_f[ncols][D];
@@ -125,7 +135,10 @@ static __global__ void flash_attn_tile_ext_f32(
 
         __syncthreads();
 
-        float sum[FATTN_KQ_STRIDE_TILE_F32/WARP_SIZE][ncols/nwarps] = {{0.0f}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Flatten single-level brace (scalar float, safe).
+        float sum[FATTN_KQ_STRIDE_TILE_F32/WARP_SIZE][ncols/nwarps] = {0.0f};
 
 #pragma unroll
         for (int k_KQ = 0; k_KQ < D; ++k_KQ) {

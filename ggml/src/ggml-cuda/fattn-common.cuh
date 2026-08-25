@@ -482,7 +482,7 @@ constexpr __device__ vec_dot_KQ_f16_t get_vec_dot_KQ_f16(ggml_type type_K) {
         type_K == GGML_TYPE_Q5_1 ? vec_dot_fattn_vec_KQ_q5_1<half, D, warp_size> :
         type_K == GGML_TYPE_Q8_0 ? vec_dot_fattn_vec_KQ_q8_0<half, D, warp_size> :
         type_K == GGML_TYPE_F16 ? vec_dot_fattn_vec_KQ_f16<half, D, warp_size> :
-        nullptr;
+        (vec_dot_KQ_f16_t) nullptr;
 }
 
 template <int D, int warp_size = WARP_SIZE>
@@ -493,7 +493,7 @@ constexpr __device__ vec_dot_KQ_f32_t get_vec_dot_KQ_f32(ggml_type type_K) {
         type_K == GGML_TYPE_Q5_1 ? vec_dot_fattn_vec_KQ_q5_1<float, D, warp_size> :
         type_K == GGML_TYPE_Q8_0 ? vec_dot_fattn_vec_KQ_q8_0<float, D, warp_size> :
         type_K == GGML_TYPE_F16 ? vec_dot_fattn_vec_KQ_f16<float, D, warp_size> :
-        nullptr;
+        (vec_dot_KQ_f32_t) nullptr;
 }
 
 constexpr __device__ dequantize_1_f16_t get_dequantize_1_f16(ggml_type type_V) {
@@ -503,7 +503,7 @@ constexpr __device__ dequantize_1_f16_t get_dequantize_1_f16(ggml_type type_V) {
         type_V == GGML_TYPE_Q5_1 ? dequantize_1_q5_1<half> :
         type_V == GGML_TYPE_Q8_0 ? dequantize_1_q8_0<half> :
         type_V == GGML_TYPE_F16 ? dequantize_1_f16<half> :
-        nullptr;
+        (dequantize_1_f16_t) nullptr;
 }
 
 constexpr __device__ dequantize_1_f32_t get_dequantize_1_f32(ggml_type type_V) {
@@ -513,7 +513,7 @@ constexpr __device__ dequantize_1_f32_t get_dequantize_1_f32(ggml_type type_V) {
         type_V == GGML_TYPE_Q5_1 ? dequantize_1_q5_1<float> :
         type_V == GGML_TYPE_Q8_0 ? dequantize_1_q8_0<float> :
         type_V == GGML_TYPE_F16 ? dequantize_1_f16<float> :
-        nullptr;
+        (dequantize_1_f32_t) nullptr;
 }
 
 template<int D, int ncols1, int ncols2, int KQ_stride> // D == head size

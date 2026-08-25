@@ -55,7 +55,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -274,7 +273,11 @@ static ggml_cuda_device_info ggml_cuda_init() {
         GGML_LOG_INFO("  Device %d: %s, compute capability %d.%d, VMM: %s\n",
                         id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
 #else
+#if CUDART_VERSION >= 9000
         info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
+#else
+        info.devices[id].smpbo = prop.sharedMemPerBlock;
+#endif // CUDART_VERSION >= 9000
         info.devices[id].cc = 100*prop.major + 10*prop.minor;
         GGML_LOG_INFO("  Device %d: %s, compute capability %d.%d, VMM: %s\n",
                         id, prop.name, prop.major, prop.minor, device_vmm ? "yes" : "no");
@@ -699,9 +702,14 @@ static const ggml_backend_buffer_type_i ggml_backend_cuda_buffer_type_interface 
 };
 
 ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
-    static std::mutex mutex;
-    std::lock_guard<std::mutex> lock(mutex);
-
+    // TK1-CUDA65-PATCH: std::mutex's implementation in GCC 4.8's libstdc++
+    // default-member-initializes its native pthread handle with a nested-brace
+    // aggregate (PTHREAD_MUTEX_INITIALIZER-style), which crashes nvcc 6.5's EDG
+    // 4.8 frontend the instant a std::mutex object needs constructing -- same
+    // bug as our other nested-brace array-init fixes, just inside the standard
+    // library itself. Dropped here since this build's target use (single-
+    // threaded llama-cli inference on TK1) never calls this lazily-initialized
+    // singleton concurrently.
     if (device >= ggml_backend_cuda_get_device_count()) {
         return nullptr;
     }
@@ -712,11 +720,12 @@ ggml_backend_buffer_type_t ggml_backend_cuda_buffer_type(int device) {
 
     if (!ggml_backend_cuda_buffer_type_initialized) {
         for (int i = 0; i < ggml_backend_cuda_get_device_count(); i++) {
-            ggml_backend_cuda_buffer_types[i] = {
-                /* .iface    = */ ggml_backend_cuda_buffer_type_interface,
-                /* .device   = */ ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), i),
-                /* .context  = */ new ggml_backend_cuda_buffer_type_context{i, GGML_CUDA_NAME + std::to_string(i)},
-            };
+            ggml_backend_cuda_buffer_types[i].iface   = ggml_backend_cuda_buffer_type_interface;
+            ggml_backend_cuda_buffer_types[i].device   = ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), i);
+            ggml_backend_cuda_buffer_type_context * bt_ctx = new ggml_backend_cuda_buffer_type_context;
+            bt_ctx->device = i;
+            bt_ctx->name   = GGML_CUDA_NAME + std::to_string(i);
+            ggml_backend_cuda_buffer_types[i].context  = bt_ctx;
         }
         ggml_backend_cuda_buffer_type_initialized = true;
     }
@@ -807,7 +816,7 @@ static enum ggml_status ggml_backend_cuda_split_buffer_init_tensor(ggml_backend_
 
     const int64_t ne0 = tensor->ne[0];
 
-    ggml_tensor_extra_gpu * extra = new ggml_tensor_extra_gpu{};
+    ggml_tensor_extra_gpu * extra = new ggml_tensor_extra_gpu();
     ctx->tensor_extras.push_back(extra);
 
     for (int id = 0; id < ggml_backend_cuda_get_device_count(); ++id) {
@@ -1012,9 +1021,14 @@ static const ggml_backend_buffer_type_i ggml_backend_cuda_split_buffer_type_inte
 };
 
 ggml_backend_buffer_type_t ggml_backend_cuda_split_buffer_type(int main_device, const float * tensor_split) {
-    static std::mutex mutex;
-    std::lock_guard<std::mutex> lock(mutex);
-
+    // TK1-CUDA65-PATCH: std::mutex's implementation in GCC 4.8's libstdc++
+    // default-member-initializes its native pthread handle with a nested-brace
+    // aggregate (PTHREAD_MUTEX_INITIALIZER-style), which crashes nvcc 6.5's EDG
+    // 4.8 frontend the instant a std::mutex object needs constructing -- same
+    // bug as our other nested-brace array-init fixes, just inside the standard
+    // library itself. Dropped here since this build's target use (single-
+    // threaded llama-cli inference on TK1) never calls this lazily-initialized
+    // singleton concurrently.
     static std::map<std::pair<int, std::array<float, GGML_CUDA_MAX_DEVICES>>, struct ggml_backend_buffer_type> buft_map;
 
     std::array<float, GGML_CUDA_MAX_DEVICES> tensor_split_arr = {};
@@ -1033,21 +1047,21 @@ ggml_backend_buffer_type_t ggml_backend_cuda_split_buffer_type(int main_device, 
         }
     }
 
-    auto it = buft_map.find({main_device, tensor_split_arr});
+    auto it = buft_map.find(std::make_pair(main_device, tensor_split_arr));
     if (it != buft_map.end()) {
         return &it->second;
     }
-    auto * ctx = new ggml_backend_cuda_split_buffer_type_context{
-        main_device,
-        tensor_split_arr,
-        GGML_CUDA_NAME + std::to_string(main_device) + "_Split",
-    };
+    // TK1-CUDA65-PATCH: brace-init (via new-expression or a local declaration)
+    // crashes nvcc 6.5's EDG 4.8 frontend; assign fields explicitly instead.
+    auto * ctx = new ggml_backend_cuda_split_buffer_type_context;
+    ctx->main_device  = main_device;
+    ctx->tensor_split = tensor_split_arr;
+    ctx->name         = GGML_CUDA_NAME + std::to_string(main_device) + "_Split";
 
-    struct ggml_backend_buffer_type buft {
-        /* .iface   = */ ggml_backend_cuda_split_buffer_type_interface,
-        /* .device  = */ ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), main_device),
-        /* .context = */ ctx,
-    };
+    struct ggml_backend_buffer_type buft;
+    buft.iface   = ggml_backend_cuda_split_buffer_type_interface;
+    buft.device  = ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), main_device);
+    buft.context = ctx;
 
     auto result = buft_map.emplace(std::make_pair(main_device, tensor_split_arr), buft);
     return &result.first->second;
@@ -1196,6 +1210,7 @@ static void ggml_cuda_op_mul_mat_cublas(
 
     const bool use_fp16 = (src0->type == GGML_TYPE_F16 || ggml_is_quantized(src0->type)) && ggml_is_contiguous(src0) && row_diff == src0->ne[1] && dst->op_params[0] == GGML_PREC_DEFAULT;
 
+#if CUDART_VERSION >= 8000
     if (((GGML_CUDA_CC_IS_NVIDIA(cc) && cc >= GGML_CUDA_CC_VOLTA) || GGML_CUDA_CC_IS_AMD(cc)) && use_fp16) {
         // convert src0 and src1 to fp16, multiply as fp16, convert dst to fp32
         ggml_cuda_pool_alloc<half> src0_as_f16(ctx.pool(id));
@@ -1249,7 +1264,11 @@ static void ggml_cuda_op_mul_mat_cublas(
             const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(GGML_TYPE_F16);
             to_fp32_cuda(dst_f16.get(), dst_dd_i, row_diff*src1_ncols, stream);
         }
-    } else {
+    } else
+#else
+    if (true)
+#endif // CUDART_VERSION >= 8000
+    {
         ggml_cuda_pool_alloc<float> src0_ddq_as_f32(ctx.pool(id));
         ggml_cuda_pool_alloc<float> src1_ddq_as_f32(ctx.pool(id));
 
@@ -1675,7 +1694,7 @@ static void ggml_cuda_op_mul_mat(
 }
 
 static __global__ void k_compute_batched_ptrs(
-        const half * src0_as_f16, const half * src1_as_f16, char * dst,
+        const void * src0_as_f16, const void * src1_as_f16, char * dst,
         const void ** ptrs_src, void ** ptrs_dst,
         int64_t ne12, int64_t ne13,
         int64_t ne23,
@@ -1698,6 +1717,89 @@ static __global__ void k_compute_batched_ptrs(
     ptrs_dst[0*ne23 + i12 + i13*ne12] = (      char *)         dst + i12*nbd2 + i13*nbd3;
 }
 
+// TK1-CUDA65-PATCH: CUDA 6.5's cuBLAS predates the Ex/StridedBatchedEx/
+// BatchedEx tensor-core GEMM API and its fp16 data-type enums (all added in
+// CUDA 8). Kepler has no tensor cores anyway, so fall back to a plain fp32
+// batched GEMM using the classic cublasSgemmBatched (available since CUDA
+// 4.1) over an array of per-batch pointers, mirroring the broadcast/stride
+// logic of the modern path below.
+#if CUDART_VERSION < 8000
+static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
+    GGML_ASSERT(!ggml_is_transposed(src0));
+    GGML_ASSERT(!ggml_is_transposed(src1));
+    GGML_ASSERT(ggml_backend_buffer_is_cuda(src0->buffer));
+    GGML_ASSERT(src0->type == GGML_TYPE_F16);
+
+    GGML_TENSOR_BINARY_OP_LOCALS
+
+    cudaStream_t main_stream = ctx.stream();
+    CUBLAS_CHECK(cublasSetStream(ctx.cublas_handle(), main_stream));
+
+    half  * src0_f16  = (half  *) src0->data;
+    float * src1_ddf  = (float *) src1->data;
+    float * dst_ddf   = (float *) dst->data;
+
+    ggml_cuda_pool_alloc<half> src1_f16_alloc(ctx.pool());
+    if (src1->type != GGML_TYPE_F16) {
+        const to_fp16_cuda_t to_fp16_cuda = ggml_get_to_fp16_cuda(src1->type);
+        const int64_t ne_src1 = ggml_nelements(src1);
+        src1_f16_alloc.alloc(ne_src1);
+        GGML_ASSERT(to_fp16_cuda != nullptr);
+        to_fp16_cuda(src1_ddf, src1_f16_alloc.get(), ne_src1, main_stream);
+    }
+    half * src1_f16 = src1->type == GGML_TYPE_F16 ? (half *) src1_ddf : src1_f16_alloc.get();
+
+    const to_fp32_cuda_t to_fp32_cuda = ggml_get_to_fp32_cuda(GGML_TYPE_F16);
+    GGML_ASSERT(to_fp32_cuda != nullptr);
+
+    // Convert both operands to densely-packed fp32 buffers. The linear
+    // element-index conversion preserves relative element positions, so the
+    // original half-buffer byte strides simply double for the new buffers.
+    ggml_cuda_pool_alloc<float> src0_f32_alloc(ctx.pool(), ggml_nelements(src0));
+    to_fp32_cuda(src0_f16, src0_f32_alloc.get(), ggml_nelements(src0), main_stream);
+    float * src0_f32 = src0_f32_alloc.get();
+
+    ggml_cuda_pool_alloc<float> src1_f32_alloc(ctx.pool(), ggml_nelements(src1));
+    to_fp32_cuda(src1_f16, src1_f32_alloc.get(), ggml_nelements(src1), main_stream);
+    float * src1_f32 = src1_f32_alloc.get();
+
+    const size_t nb02_f32 = nb02 * 2;
+    const size_t nb03_f32 = nb03 * 2;
+    const size_t nb12_f32 = (src1->type == GGML_TYPE_F16 ? nb12 : nb12 / 2) * 2;
+    const size_t nb13_f32 = (src1->type == GGML_TYPE_F16 ? nb13 : nb13 / 2) * 2;
+
+    GGML_ASSERT(ne12 % ne02 == 0);
+    GGML_ASSERT(ne13 % ne03 == 0);
+    const int64_t r2   = ne12/ne02;
+    const int64_t r3   = ne13/ne03;
+    const int64_t ne23 = ne12*ne13;
+
+    ggml_cuda_pool_alloc<const void *> ptrs_src(ctx.pool(), 2*ne23);
+    ggml_cuda_pool_alloc<      void *> ptrs_dst(ctx.pool(), 1*ne23);
+
+    dim3 block_dims(ne13, ne12);
+    k_compute_batched_ptrs<<<1, block_dims, 0, main_stream>>>(
+            src0_f32, src1_f32, (char *) dst_ddf,
+            ptrs_src.get(), ptrs_dst.get(),
+            ne12, ne13,
+            ne23,
+            nb02_f32, nb03_f32,
+            nb12_f32, nb13_f32,
+            nb2, nb3,
+            r2, r3);
+    CUDA_CHECK(cudaGetLastError());
+
+    const float alpha = 1.0f;
+    const float beta  = 0.0f;
+    CUBLAS_CHECK(
+    cublasSgemmBatched(ctx.cublas_handle(), CUBLAS_OP_T, CUBLAS_OP_N,
+            ne01, ne11, ne10,
+            &alpha, (const float **) (ptrs_src.get() + 0*ne23), nb01/nb00,
+                    (const float **) (ptrs_src.get() + 1*ne23), nb11/nb10,
+            &beta,  (      float **) (ptrs_dst.get() + 0*ne23), ne01,
+            ne23));
+}
+#else
 static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
     GGML_ASSERT(!ggml_is_transposed(src0));
     GGML_ASSERT(!ggml_is_transposed(src1));
@@ -1848,6 +1950,8 @@ static void ggml_cuda_mul_mat_batched_cublas(ggml_backend_cuda_context & ctx, co
     }
 }
 
+#endif // CUDART_VERSION < 8000
+
 static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, const ggml_tensor * src1, ggml_tensor * dst) {
     const bool split = ggml_backend_buft_is_cuda_split(src0->buffer->buft);
 
@@ -1936,7 +2040,10 @@ static __global__ void k_copy_src1_to_contiguous(const char * __restrict__ src1_
     __shared__ int src1_row;
     if (threadIdx.x == 0) {
         src1_row = atomicAdd(cur_src1_row, 1);
-        row_mapping[src1_row] = {id, iid1};
+        // TK1-CUDA65-PATCH: brace-init aggregate assignment crashes nvcc
+        // 6.5's EDG 4.8 frontend; assign fields explicitly instead.
+        row_mapping[src1_row].i1 = id;
+        row_mapping[src1_row].i2 = iid1;
     }
     __syncthreads();
 
@@ -2898,12 +3005,12 @@ static void ggml_backend_cuda_device_get_props(ggml_backend_dev_t dev, ggml_back
     bool events = true;
 #endif
 
-    props->caps = {
-        /* .async                 = */ true,
-        /* .host_buffer           = */ host_buffer,
-        /* .buffer_from_host_ptr  = */ false,
-        /* .events                = */ events,
-    };
+    // TK1-CUDA65-PATCH: brace-init aggregate assignment crashes nvcc 6.5's
+    // EDG 4.8 frontend; assign fields explicitly instead.
+    props->caps.async                = true;
+    props->caps.host_buffer          = host_buffer;
+    props->caps.buffer_from_host_ptr = false;
+    props->caps.events               = events;
 }
 
 static ggml_backend_t ggml_backend_cuda_device_init_backend(ggml_backend_dev_t dev, const char * params) {
@@ -3271,10 +3378,12 @@ static ggml_backend_event_t ggml_backend_cuda_device_event_new(ggml_backend_dev_
     cudaEvent_t event;
     CUDA_CHECK(cudaEventCreateWithFlags(&event, cudaEventDisableTiming));
 
-    return new ggml_backend_event {
-        /* .device  = */ dev,
-        /* .context = */ event,
-    };
+    // TK1-CUDA65-PATCH: brace-init with `new Type{...}` crashes nvcc 6.5's EDG
+    // 4.8 frontend; allocate then assign fields explicitly instead.
+    ggml_backend_event * ev = new ggml_backend_event;
+    ev->device  = dev;
+    ev->context = event;
+    return ev;
 #endif
 }
 
@@ -3337,45 +3446,95 @@ static ggml_backend_feature * ggml_backend_cuda_get_features(ggml_backend_reg_t 
     #define STRINGIFY(...) _STRINGIFY(__VA_ARGS__)
 
     #ifdef __CUDA_ARCH_LIST__
-        features.push_back({ "ARCHS", STRINGIFY(__CUDA_ARCH_LIST__) });
+        {
+            ggml_backend_feature f;
+            f.name  = "ARCHS";
+            f.value = STRINGIFY(__CUDA_ARCH_LIST__);
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_FORCE_MMQ
-        features.push_back({ "FORCE_MMQ", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "FORCE_MMQ";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_FORCE_CUBLAS
-        features.push_back({ "FORCE_CUBLAS", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "FORCE_CUBLAS";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #ifndef GGML_USE_VMM
-        features.push_back({ "NO_VMM", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "NO_VMM";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_NO_PEER_COPY
-        features.push_back({ "NO_PEER_COPY", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "NO_PEER_COPY";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_F16
-        features.push_back({ "F16", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "F16";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_USE_GRAPHS
-        features.push_back({ "USE_GRAPHS", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "USE_GRAPHS";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_PEER_MAX_BATCH_SIZE
-        features.push_back({ "PEER_MAX_BATCH_SIZE", STRINGIFY(GGML_CUDA_PEER_MAX_BATCH_SIZE) });
+        {
+            ggml_backend_feature f;
+            f.name  = "PEER_MAX_BATCH_SIZE";
+            f.value = STRINGIFY(GGML_CUDA_PEER_MAX_BATCH_SIZE);
+            features.push_back(f);
+        }
     #endif
 
     #ifdef GGML_CUDA_FA_ALL_QUANTS
-        features.push_back({ "FA_ALL_QUANTS", "1" });
+        {
+            ggml_backend_feature f;
+            f.name  = "FA_ALL_QUANTS";
+            f.value = "1";
+            features.push_back(f);
+        }
     #endif
 
     #undef _STRINGIFY
     #undef STRINGIFY
 
-        features.push_back({ nullptr, nullptr });
+        {
+            ggml_backend_feature f;
+            f.name  = nullptr;
+            f.value = nullptr;
+            features.push_back(f);
+        }
 
         return features;
     }();
@@ -3414,9 +3573,15 @@ ggml_backend_reg_t ggml_backend_cuda_reg() {
     static ggml_backend_reg reg;
     static bool initialized = false;
 
+        // TK1-CUDA65-PATCH: std::mutex's implementation in GCC 4.8's libstdc++
+        // default-member-initializes its native pthread handle with a nested-brace
+        // aggregate (PTHREAD_MUTEX_INITIALIZER-style), which crashes nvcc 6.5's EDG
+        // 4.8 frontend the instant a std::mutex object needs constructing -- same
+        // bug as our other nested-brace array-init fixes, just inside the standard
+        // library itself. Dropped here since this build's target use (single-
+        // threaded llama-cli inference on TK1) never calls this lazily-initialized
+        // singleton concurrently.
     {
-        static std::mutex mutex;
-        std::lock_guard<std::mutex> lock(mutex);
         if (!initialized) {
             ggml_backend_cuda_reg_context * ctx = new ggml_backend_cuda_reg_context;
 
@@ -3430,19 +3595,19 @@ ggml_backend_reg_t ggml_backend_cuda_reg() {
                 CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
                 dev_ctx->description = prop.name;
 
-                ggml_backend_dev_t dev = new ggml_backend_device {
-                    /* .iface   = */ ggml_backend_cuda_device_interface,
-                    /* .reg     = */ &reg,
-                    /* .context = */ dev_ctx
-                };
+                // TK1-CUDA65-PATCH: brace-init with `new Type{...}` crashes nvcc 6.5's
+                // EDG 4.8 frontend the same way plain aggregate brace-init does. Allocate
+                // then assign fields explicitly instead.
+                ggml_backend_device * dev = new ggml_backend_device;
+                dev->iface   = ggml_backend_cuda_device_interface;
+                dev->reg     = &reg;
+                dev->context = dev_ctx;
                 ctx->devices.push_back(dev);
             }
 
-            reg = ggml_backend_reg {
-                /* .api_version = */ GGML_BACKEND_API_VERSION,
-                /* .iface       = */ ggml_backend_cuda_reg_interface,
-                /* .context     = */ ctx
-            };
+            reg.api_version = GGML_BACKEND_API_VERSION;
+            reg.iface       = ggml_backend_cuda_reg_interface;
+            reg.context     = ctx;
         }
 
         initialized = true;
@@ -3463,12 +3628,11 @@ ggml_backend_t ggml_backend_cuda_init(int device) {
         return nullptr;
     }
 
-    ggml_backend_t cuda_backend = new ggml_backend {
-        /* .guid      = */ ggml_backend_cuda_guid(),
-        /* .interface = */ ggml_backend_cuda_interface,
-        /* .device    = */ ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), device),
-        /* .context   = */ ctx,
-    };
+    ggml_backend * cuda_backend = new ggml_backend;
+    cuda_backend->guid    = ggml_backend_cuda_guid();
+    cuda_backend->iface   = ggml_backend_cuda_interface;
+    cuda_backend->device  = ggml_backend_reg_dev_get(ggml_backend_cuda_reg(), device);
+    cuda_backend->context = ctx;
 
     return cuda_backend;
 }

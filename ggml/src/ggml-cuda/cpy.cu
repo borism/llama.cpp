@@ -3,28 +3,28 @@
 
 typedef void (*cpy_kernel_t)(const char * cx, char * cdst);
 
-static __device__ void cpy_1_f32_f32(const char * cxi, char * cdsti) {
+__device__ void cpy_1_f32_f32(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     float * dsti = (float *) cdsti;
 
     *dsti = *xi;
 }
 
-static __device__ void cpy_1_f32_f16(const char * cxi, char * cdsti) {
+__device__ void cpy_1_f32_f16(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     half * dsti = (half *) cdsti;
 
     *dsti = __float2half(*xi);
 }
 
-static __device__ void cpy_1_f16_f16(const char * cxi, char * cdsti) {
+__device__ void cpy_1_f16_f16(const char * cxi, char * cdsti) {
     const half * xi = (const half *) cxi;
     half * dsti = (half *) cdsti;
 
     *dsti = *xi;
 }
 
-static __device__ void cpy_1_f16_f32(const char * cxi, char * cdsti) {
+__device__ void cpy_1_f16_f32(const char * cxi, char * cdsti) {
     const half * xi = (const half *) cxi;
     float * dsti = (float *) cdsti;
 
@@ -61,7 +61,7 @@ static __global__ void cpy_f32_f16(const char * cx, char * cdst_direct, const in
     cpy_1(cx + x_offset, cdst + dst_offset);
 }
 
-static __device__ void cpy_blck_f32_q8_0(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_f32_q8_0(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     block_q8_0 * dsti = (block_q8_0 *) cdsti;
 
@@ -84,7 +84,7 @@ static __device__ void cpy_blck_f32_q8_0(const char * cxi, char * cdsti) {
     }
 }
 
-static __device__ void cpy_blck_q8_0_f32(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_q8_0_f32(const char * cxi, char * cdsti) {
     float * cdstf = (float *)(cdsti);
 
 #pragma unroll
@@ -96,7 +96,7 @@ static __device__ void cpy_blck_q8_0_f32(const char * cxi, char * cdsti) {
     }
 }
 
-static __device__ void cpy_blck_f32_q4_0(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_f32_q4_0(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     block_q4_0 * dsti = (block_q4_0 *) cdsti;
 
@@ -128,7 +128,7 @@ static __device__ void cpy_blck_f32_q4_0(const char * cxi, char * cdsti) {
     }
 }
 
-static __device__ void cpy_blck_f32_q4_1(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_f32_q4_1(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     block_q4_1 * dsti = (block_q4_1 *) cdsti;
 
@@ -160,7 +160,7 @@ static __device__ void cpy_blck_f32_q4_1(const char * cxi, char * cdsti) {
     }
 }
 
-static __device__ void cpy_blck_f32_q5_0(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_f32_q5_0(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     block_q5_0 * dsti = (block_q5_0 *) cdsti;
 
@@ -195,7 +195,7 @@ static __device__ void cpy_blck_f32_q5_0(const char * cxi, char * cdsti) {
     memcpy(dsti->qh, &qh, sizeof(qh));
 }
 
-static __device__ void cpy_blck_f32_q5_1(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_f32_q5_1(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     block_q5_1 * dsti = (block_q5_1 *) cdsti;
 
@@ -230,7 +230,7 @@ static __device__ void cpy_blck_f32_q5_1(const char * cxi, char * cdsti) {
 }
 
 template<dequantize_kernel_t dequant, int qk>
-static __device__ void cpy_blck_q_f32(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_q_f32(const char * cxi, char * cdsti) {
     float * cdstf = (float *)(cdsti);
 
 #pragma unroll
@@ -242,7 +242,7 @@ static __device__ void cpy_blck_q_f32(const char * cxi, char * cdsti) {
     }
 }
 
-static __device__ __forceinline__ int best_index_int8(int n, const int8_t * val, float x) {
+__device__ __forceinline__ int best_index_int8(int n, const int8_t * val, float x) {
     if (x <= val[0]) return 0;
     if (x >= val[n-1]) return n-1;
     int ml = 0, mu = n-1;
@@ -253,7 +253,7 @@ static __device__ __forceinline__ int best_index_int8(int n, const int8_t * val,
     return x - val[mu-1] < val[mu] - x ? mu-1 : mu;
 }
 
-static __device__ void cpy_blck_f32_iq4_nl(const char * cxi, char * cdsti) {
+__device__ void cpy_blck_f32_iq4_nl(const char * cxi, char * cdsti) {
     const float * xi = (const float *) cxi;
     block_iq4_nl * dsti = (block_iq4_nl *) cdsti;
 

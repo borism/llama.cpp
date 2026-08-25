@@ -154,26 +154,66 @@ static constexpr __device__ int get_mmq_y_device() {
 #define MMQ_DP4A_TXS_Q5_K    tile_x_sizes{mmq_y*WARP_SIZE*2 + mmq_y, mmq_y*WARP_SIZE/QI5_K   + mmq_y/QI5_K,     mmq_y*WARP_SIZE/8 + mmq_y/8}
 #define MMQ_DP4A_TXS_Q6_K    tile_x_sizes{mmq_y*WARP_SIZE*2 + mmq_y, mmq_y*WARP_SIZE/QI6_K   + mmq_y/QI6_K,     mmq_y*WARP_SIZE/8 + mmq_y/8}
 
+// TK1-CUDA65-PATCH: the original mmq_get_dp4a_tile_x_sizes built a
+// tile_x_sizes{...} struct temporary in every arm of an 18-way chained
+// ternary. nvcc 6.5's EDG 4.8 frontend crashes internally on struct-typed
+// chained ternaries this deep ("internal error ... lower_init.c"); plain int
+// ternaries are fine. Split into three int-returning helpers (one per field)
+// and construct the struct exactly once at the end.
+static constexpr __host__ __device__ int mmq_get_dp4a_tile_x_qs(ggml_type type, int mmq_y) {
+    return type == GGML_TYPE_Q4_0    ? mmq_y*WARP_SIZE   + mmq_y :
+        type == GGML_TYPE_Q4_1       ? mmq_y*WARP_SIZE   + mmq_y :
+        type == GGML_TYPE_Q5_0       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_Q5_1       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_Q8_0       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_Q2_K       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_Q3_K       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_Q4_K       ? mmq_y*WARP_SIZE   + mmq_y :
+        type == GGML_TYPE_Q5_K       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_Q6_K       ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ2_XXS    ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ2_XS     ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ2_S      ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ3_XXS    ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ3_S      ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ1_S      ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ4_XS     ? mmq_y*WARP_SIZE*2 + mmq_y :
+        type == GGML_TYPE_IQ4_NL     ? mmq_y*WARP_SIZE*2 + mmq_y :
+        0;
+}
+
+static constexpr __host__ __device__ int mmq_get_dp4a_tile_x_dm(ggml_type type, int mmq_y) {
+    return type == GGML_TYPE_Q4_0    ? mmq_y*WARP_SIZE/QI4_0   + mmq_y/QI4_0 :
+        type == GGML_TYPE_Q4_1       ? mmq_y*WARP_SIZE/QI4_1   + mmq_y/QI4_1 :
+        type == GGML_TYPE_Q5_0       ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_Q5_1       ? mmq_y*WARP_SIZE*2/QI8_1 + mmq_y/(QI8_1/2) :
+        type == GGML_TYPE_Q8_0       ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_Q2_K       ? mmq_y*WARP_SIZE         + mmq_y :
+        type == GGML_TYPE_Q3_K       ? mmq_y :
+        type == GGML_TYPE_Q4_K       ? mmq_y*WARP_SIZE/QI4_K :
+        type == GGML_TYPE_Q5_K       ? mmq_y*WARP_SIZE/QI5_K   + mmq_y/QI5_K :
+        type == GGML_TYPE_Q6_K       ? mmq_y*WARP_SIZE/QI6_K   + mmq_y/QI6_K :
+        type == GGML_TYPE_IQ2_XXS    ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_IQ2_XS     ? mmq_y*WARP_SIZE*4/QI8_0 + mmq_y/(QI8_0/4) :
+        type == GGML_TYPE_IQ2_S      ? mmq_y*WARP_SIZE*4/QI8_0 + mmq_y/(QI8_0/4) :
+        type == GGML_TYPE_IQ3_XXS    ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_IQ3_S      ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_IQ1_S      ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_IQ4_XS     ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        type == GGML_TYPE_IQ4_NL     ? mmq_y*WARP_SIZE*2/QI8_0 + mmq_y/(QI8_0/2) :
+        0;
+}
+
+static constexpr __host__ __device__ int mmq_get_dp4a_tile_x_sc(ggml_type type, int mmq_y) {
+    return type == GGML_TYPE_Q3_K ? mmq_y*WARP_SIZE/8 + mmq_y/8 :
+        type == GGML_TYPE_Q4_K    ? mmq_y*WARP_SIZE/8 + mmq_y/8 :
+        type == GGML_TYPE_Q5_K    ? mmq_y*WARP_SIZE/8 + mmq_y/8 :
+        type == GGML_TYPE_Q6_K    ? mmq_y*WARP_SIZE/8 + mmq_y/8 :
+        0;
+}
+
 static constexpr __host__ __device__ tile_x_sizes mmq_get_dp4a_tile_x_sizes(ggml_type type, int mmq_y) {
-    return type == GGML_TYPE_Q4_0 ? MMQ_DP4A_TXS_Q4_0 :
-        type == GGML_TYPE_Q4_1    ? MMQ_DP4A_TXS_Q4_1 :
-        type == GGML_TYPE_Q5_0    ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_Q5_1    ? MMQ_DP4A_TXS_Q8_1 :
-        type == GGML_TYPE_Q8_0    ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_Q2_K    ? MMQ_DP4A_TXS_Q2_K :
-        type == GGML_TYPE_Q3_K    ? MMQ_DP4A_TXS_Q3_K :
-        type == GGML_TYPE_Q4_K    ? MMQ_DP4A_TXS_Q4_K :
-        type == GGML_TYPE_Q5_K    ? MMQ_DP4A_TXS_Q5_K :
-        type == GGML_TYPE_Q6_K    ? MMQ_DP4A_TXS_Q6_K :
-        type == GGML_TYPE_IQ2_XXS ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ2_XS  ? MMQ_DP4A_TXS_Q8_0_16 :
-        type == GGML_TYPE_IQ2_S   ? MMQ_DP4A_TXS_Q8_0_16 :
-        type == GGML_TYPE_IQ3_XXS ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ3_S   ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ1_S   ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ4_XS  ? MMQ_DP4A_TXS_Q8_0 :
-        type == GGML_TYPE_IQ4_NL  ? MMQ_DP4A_TXS_Q8_0 :
-        tile_x_sizes{0, 0, 0};
+    return {mmq_get_dp4a_tile_x_qs(type, mmq_y), mmq_get_dp4a_tile_x_dm(type, mmq_y), mmq_get_dp4a_tile_x_sc(type, mmq_y)};
 }
 
 #define MMQ_MMA_TILE_X_K_Q8_0 (2*WARP_SIZE + 2*WARP_SIZE/QI8_0                 + 4)
@@ -235,7 +275,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + 2*WARP_SIZE);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -287,7 +327,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q4_0_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_0, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -330,7 +370,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*WARP_SIZE);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -382,7 +422,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q4_1_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_1, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -425,7 +465,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_0, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_0, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -497,7 +537,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*WARP_SIZE);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -567,7 +607,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_tile + 2*WARP_SIZE);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -619,7 +659,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q8_0_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q8_0, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -730,7 +770,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q8_1_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_1, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -837,9 +877,13 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q8_0_16_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = MMQ_DP4A_TXS_Q8_0_16;
+    // TK1-CUDA65-PATCH: `Type v = Type{...};` (functional-style construction,
+    // as MMQ_DP4A_TXS_Q8_0_16 expands to) crashes nvcc 6.5's EDG 4.8 frontend
+    // like other brace-init forms. Only .qs is used here, so compute it
+    // directly instead of constructing the whole struct.
+    constexpr int txs_qs = mmq_y*WARP_SIZE*2 + mmq_y;
     const int   * x_qs = (const int   *) x;
-    const float * x_df = (const float *) x_qs + txs.qs;
+    const float * x_df = (const float *) x_qs + txs_qs;
     const int   * y_qs = (const int   *) y + 4;
     const float * y_df = (const float *) y;
 
@@ -957,7 +1001,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*WARP_SIZE);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -1009,7 +1053,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q2_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q2_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * y_qs = (const int   *) y + 4;
@@ -1203,7 +1247,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_df + txs.dm);
@@ -1296,7 +1340,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q3_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q3_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_df + txs.dm;
@@ -1342,7 +1386,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + 2*WARP_SIZE);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_dm + txs.dm);
@@ -1435,7 +1479,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q4_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q4_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_dm + txs.dm;
@@ -1471,7 +1515,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_dm = (half2 *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_dm + txs.dm);
@@ -1576,7 +1620,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q5_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q5_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const half2 * x_dm = (const half2 *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_dm + txs.dm;
@@ -1613,7 +1657,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
     int   * x_sc = (int   *) (x_df + WARP_SIZE/QI6_K);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
     int   * x_sc = (int   *) (x_df + txs.dm);
@@ -1691,7 +1735,7 @@ template <int mmq_x, int mmq_y, int nwarps>
 static __device__ __forceinline__ void vec_dot_q6_K_q8_1_dp4a(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int & k00) {
 
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_Q6_K, mmq_y);
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + txs.qs;
     const int   * x_sc = (const int   *) x_df + txs.dm;
@@ -1785,7 +1829,10 @@ static __device__ __forceinline__ void vec_dot_q6_K_q8_1_mma(
 
 #pragma unroll
     for (int j0 = 0; j0 < mmq_x; j0 += ntx*tile_C::J) {
-        float tmp[ntx][tile_C::ne] = {{0.0f}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Flatten single-level brace (scalar float, safe).
+        float tmp[ntx][tile_C::ne] = {0.0f};
 
 #pragma unroll
         for (int k01 = 0; k01 < WARP_SIZE; k01 += 8) {
@@ -1837,7 +1884,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_NL, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_NL, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -1895,7 +1942,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_XXS, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_XXS, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -1953,9 +2000,13 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = MMQ_DP4A_TXS_Q8_0_16;
+    // TK1-CUDA65-PATCH: `Type v = Type{...};` (functional-style construction,
+    // as MMQ_DP4A_TXS_Q8_0_16 expands to) crashes nvcc 6.5's EDG 4.8 frontend
+    // like other brace-init forms. Only .qs is used here, so compute it
+    // directly instead of constructing the whole struct.
+    constexpr int txs_qs = mmq_y*WARP_SIZE*2 + mmq_y;
     int   * x_qs = (int   *)  x_tile;
-    float * x_df = (float *) (x_qs + txs.qs);
+    float * x_df = (float *) (x_qs + txs_qs);
 #endif // NEW_MMA_AVAILABLE
 
     const int kqsx = threadIdx.x % (QI2_XS/2);
@@ -2009,7 +2060,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_S, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ2_S, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -2072,7 +2123,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_XXS, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_XXS, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -2128,7 +2179,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -2191,7 +2242,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     half2 * x_ds = (half2 *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ3_S, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     half2 * x_ds = (half2 *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE
@@ -2247,7 +2298,7 @@ template <int mmq_y, int nwarps, bool need_check> static __device__ __forceinlin
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + WARP_SIZE*2);
 #else
-    constexpr tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_XS, mmq_y);
+    const tile_x_sizes txs = mmq_get_dp4a_tile_x_sizes(GGML_TYPE_IQ4_XS, mmq_y);
     int   * x_qs = (int   *)  x_tile;
     float * x_df = (float *) (x_qs + txs.qs);
 #endif // NEW_MMA_AVAILABLE

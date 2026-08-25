@@ -123,9 +123,20 @@ static __global__ void flash_attn_ext_f16(
         KQ_max_f[j] = -FLT_MAX/2.0f;
     }
 
-    half2    KQ_rowsum_h2[ncols/nwarps] = {{0.0f, 0.0f}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Use an unrolled loop instead.
+    half2    KQ_rowsum_h2[ncols/nwarps];
+#pragma unroll
+    for (int j = 0; j < ncols/nwarps; ++j) {
+        KQ_rowsum_h2[j] = make_half2(0.0f, 0.0f);
+    }
     half2       KQ_max_h2[ncols/nwarps];
-    half2 KQ_max_scale_h2[ncols/nwarps] = {{0.0f, 0.0f}};
+    half2 KQ_max_scale_h2[ncols/nwarps];
+#pragma unroll
+    for (int j = 0; j < ncols/nwarps; ++j) {
+        KQ_max_scale_h2[j] = make_half2(0.0f, 0.0f);
+    }
 
 #pragma unroll
     for (int j = 0; j < ncols/nwarps; ++j) {

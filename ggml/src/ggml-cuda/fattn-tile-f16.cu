@@ -83,9 +83,23 @@ static __global__ void flash_attn_tile_ext_f16(
     for (int j0 = 0; j0 < ncols; j0 += nwarps) {
         kqmax[j0/nwarps] = -HALF_MAX_HALF;
     }
-    half2 kqsum[ncols/nwarps] = {{0.0f, 0.0f}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Use an unrolled loop instead.
+    half2 kqsum[ncols/nwarps];
+#pragma unroll
+    for (int j0 = 0; j0 < ncols; j0 += nwarps) {
+        kqsum[j0/nwarps] = make_half2(0.0f, 0.0f);
+    }
 
-    half2 VKQ[ncols/nwarps][(D/2)/WARP_SIZE] = {{{0.0f, 0.0f}}};
+    half2 VKQ[ncols/nwarps][(D/2)/WARP_SIZE];
+#pragma unroll
+    for (int j0 = 0; j0 < ncols; j0 += nwarps) {
+#pragma unroll
+        for (int i0 = 0; i0 < (D/2)/WARP_SIZE; ++i0) {
+            VKQ[j0/nwarps][i0] = make_half2(0.0f, 0.0f);
+        }
+    }
 
     // Convert Q to half2 and store in registers:
     __shared__ half2 Q_h2[ncols][D/2];
@@ -127,7 +141,14 @@ static __global__ void flash_attn_tile_ext_f16(
 
         __syncthreads();
 
-        half2 sum2[FATTN_KQ_STRIDE_TILE_F16/WARP_SIZE][ncols/nwarps] = {{{0.0f, 0.0f}}};
+        half2 sum2[FATTN_KQ_STRIDE_TILE_F16/WARP_SIZE][ncols/nwarps];
+#pragma unroll
+        for (int i0 = 0; i0 < FATTN_KQ_STRIDE_TILE_F16/WARP_SIZE; ++i0) {
+#pragma unroll
+            for (int j0 = 0; j0 < ncols/nwarps; ++j0) {
+                sum2[i0][j0] = make_half2(0.0f, 0.0f);
+            }
+        }
 
 #pragma unroll
         for (int k_KQ = 0; k_KQ < D/2; ++k_KQ) {

@@ -23,7 +23,7 @@ static constexpr __device__ vec_dot_q_cuda_t get_vec_dot_q_cuda(ggml_type type) 
         type == GGML_TYPE_IQ4_NL ? vec_dot_iq4_nl_q8_1 :
         type == GGML_TYPE_IQ4_XS ? vec_dot_iq4_xs_q8_1 :
         type == GGML_TYPE_IQ3_S ? vec_dot_iq3_s_q8_1 :
-        nullptr;
+        (vec_dot_q_cuda_t) nullptr;
 }
 
 static constexpr __device__ int get_vdr_mmvq(ggml_type type) {
@@ -74,57 +74,15 @@ static __host__ mmvq_parameter_table_id get_device_table_id(int cc) {
 }
 
 static constexpr __host__ __device__ int calc_nwarps(int ncols_y,  mmvq_parameter_table_id table_id) {
-    if (table_id == MMVQ_PARAMETERS_GENERIC) {
-        switch (ncols_y) {
-            case 1:
-            case 2:
-            case 3:
-            case 4:
-                return 4;
-            case 5:
-            case 6:
-            case 7:
-            case 8:
-                return 2;
-            default:
-                return 1;
-        }
-    } else if (table_id == MMVQ_PARAMETERS_GCN) {
-        switch (ncols_y) {
-            case 1:
-            case 2:
-            case 3:
-            case 4:
-                return 2;
-            case 5:
-            case 6:
-            case 7:
-            case 8:
-            default:
-                return 1;
-        }
-    }
-    return 1;
+    return table_id == MMVQ_PARAMETERS_GENERIC ? (ncols_y <= 4 ? 4 : ncols_y <= 8 ? 2 : 1) :
+        table_id == MMVQ_PARAMETERS_GCN         ? (ncols_y <= 4 ? 2 : 1) :
+        1;
 }
 
 static constexpr __host__ __device__ int calc_rows_per_block(int ncols_y, int table_id) {
-    if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN) {
-        switch (ncols_y) {
-            case 1:
-                return 1;
-            case 2:
-            case 3:
-            case 4:
-            case 5:
-            case 6:
-            case 7:
-            case 8:
-                return 2;
-            default:
-                return 1;
-        }
-    }
-    return 1;
+    return (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN) ?
+        (ncols_y == 1 ? 1 : ncols_y <= 8 ? 2 : 1) :
+        1;
 }
 
 template <ggml_type type, int ncols_y>
@@ -149,7 +107,10 @@ static __global__ void mul_mat_vec_q(
     constexpr int blocks_per_iter = vdr * nwarps*warp_size / qi;
 
     // partial sum for each thread
-    float tmp[ncols_y][rows_per_cuda_block] = {{0.0f}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Flatten single-level brace (scalar float, safe).
+    float tmp[ncols_y][rows_per_cuda_block] = {0.0f};
 
     const block_q8_1 * y = (const block_q8_1 *) vy;
 
@@ -207,7 +168,7 @@ static std::pair<dim3, dim3> calc_launch_params(const int ncols_y, const int nro
     const int64_t nblocks = (nrows_x + calc_rows_per_block(ncols_y, table_id) - 1) / calc_rows_per_block(ncols_y, table_id);
     const dim3 block_nums(nblocks, 1, 1);
     const dim3 block_dims(warp_size, calc_nwarps(ncols_y, table_id), 1);
-    return {block_nums, block_dims};
+    return std::make_pair(block_nums, block_dims);
 }
 
 template <ggml_type type>

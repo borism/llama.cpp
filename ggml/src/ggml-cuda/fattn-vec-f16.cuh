@@ -169,7 +169,14 @@ static __global__ void flash_attn_vec_ext_f16(
         KQ[j*D + tid] = -HALF_MAX_HALF;
     }
 
-    half2 VKQ[ncols] = {{0.0f, 0.0f}};
+// TK1-CUDA65-PATCH: nested-brace aggregate array initializers (any element
+// type, including scalar pointers) crash nvcc 6.5's EDG 4.8 frontend
+// (decl_inits.c internal assertion). Use an unrolled loop instead.
+    half2 VKQ[ncols];
+#pragma unroll
+    for (int j = 0; j < ncols; ++j) {
+        VKQ[j] = make_half2(0.0f, 0.0f);
+    }
 
     for (int k_VKQ_0 = blockIdx.y*D; k_VKQ_0 < ne11; k_VKQ_0 += gridDim.y*D) {
         // Calculate KQ tile and keep track of new maximum KQ values:
