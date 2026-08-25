@@ -134,7 +134,7 @@ static __global__ void dsv4_hc_pre_f32(
     for (int64_t ih = 0; ih < hc; ++ih) {
         const float xv = x[i0*sx0 + ih*sx1 + it*sx2];
         float wv;
-        if constexpr (gated) {
+        if (gated) {
             wv = 1.0f / (1.0f + expf(-weights[i0*sw0 + ih*sw1 + it*sw2]));
         } else {
             wv = weights[ih*sw0 + it*sw1];
@@ -183,7 +183,7 @@ static __global__ void dsv4_hc_post_f32(
     const int64_t it   = ir / (n_embd * hc);
 
     float sum = x[i0*sx0 + it*sx1] * post[idst*sp0 + it*sp1];
-    if constexpr (has_comb) {
+    if (has_comb) {
         for (int64_t isrc = 0; isrc < hc; ++isrc) {
             sum += residual[i0*sr0 + isrc*sr1 + it*sr2] * comb[idst*sc0 + isrc*sc1 + it*sc2];
         }

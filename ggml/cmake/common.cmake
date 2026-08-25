@@ -17,7 +17,7 @@ function(ggml_get_flags CCID CCVER)
         set(CXX_FLAGS -Wno-array-bounds)
 
         if (CCVER VERSION_GREATER_EQUAL 8.1.0)
-            list(APPEND CXX_FLAGS -Wextra-semi)
+            #list(APPEND CXX_FLAGS -Wextra-semi)
         endif()
     endif()
 

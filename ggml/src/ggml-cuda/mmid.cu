@@ -46,7 +46,7 @@ static __global__ void mm_ids_helper(
     int nex_prev   = 0; // Number of columns for experts with a lower index.
     int it_compact = 0; // Running index for the compact slice of this expert.
 
-    if constexpr (n_expert_used_template == 0) {
+    if (n_expert_used_template == 0) {
         // Generic implementation:
         for (int it = 0; it < n_tokens; ++it) {
             int iex_used = -1; // The index at which the expert is used, if any.

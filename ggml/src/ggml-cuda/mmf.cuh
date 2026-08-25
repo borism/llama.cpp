@@ -46,7 +46,7 @@ void ggml_cuda_mul_mat_f(ggml_backend_cuda_context & ctx, const ggml_tensor * sr
 bool ggml_cuda_should_use_mmf(enum ggml_type type, int cc, int warp_size, const int64_t * scr0_ne, const size_t * src0_nb, const int src1_ncols, bool mul_mat_id);
 
 template <typename T, int rows_per_block, int cols_per_block, int nwarps, bool has_ids>
-__launch_bounds__(ggml_cuda_get_physical_warp_size()*nwarps, 1)
+//__launch_bounds__(ggml_cuda_get_physical_warp_size()*nwarps, 1)
 static __global__ void mul_mat_f(
         const T * __restrict__ x, const float * __restrict__ y, const int32_t * __restrict__ ids, float * __restrict__ dst,
         const int ncols, const int ncols_dst_total, const int nchannels_dst, const int stride_row, const int stride_col_y, const int stride_col_dst,
@@ -56,29 +56,29 @@ static __global__ void mul_mat_f(
 // TODO: handle this in a consistent and simpler way after AMD MFMA support has been added
 #if defined(VOLTA_MMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE) || defined(AMD_MFMA_AVAILABLE)
 #if defined(AMD_WMMA_AVAILABLE)
-    if constexpr (!(std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
+    if (!(std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
     typedef tile<16, 8,  T,     get_input_data_layout()> tile_A;
     typedef tile<16, 8,  T,     get_input_data_layout()> tile_B;
     typedef tile<16, 16, float, DATA_LAYOUT_J_MAJOR>     tile_C;
 #elif defined(AMD_MFMA_AVAILABLE)
-    if constexpr (rows_per_block != MMF_ROWS_PER_BLOCK_CDNA) {NO_DEVICE_CODE;} else {
+    if (rows_per_block != MMF_ROWS_PER_BLOCK_CDNA) {NO_DEVICE_CODE;} else {
     typedef tile<16, 8,  T,     DATA_LAYOUT_I_MAJOR> tile_A;
     typedef tile<16, 8,  T,     DATA_LAYOUT_I_MAJOR> tile_B;
     typedef tile<16, 16, float, DATA_LAYOUT_J_MAJOR> tile_C;
 #else
 #ifdef VOLTA_MMA_AVAILABLE
-    if constexpr (!std::is_same_v<T, half2> || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
+    if (!std::is_same_v<T, half2> || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
     typedef tile<32, 4, T,     DATA_LAYOUT_I_MAJOR>          tile_A;
     typedef tile< 8, 4, T,     DATA_LAYOUT_I_MAJOR_MIRRORED> tile_B;
     typedef tile<32, 8, float, DATA_LAYOUT_I_MAJOR>          tile_C;
 #else
-    if constexpr (rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
+    if (rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
     typedef tile<16, 8, T>     tile_A;
     typedef tile<8,  8, T>     tile_B;
     typedef tile<16, 8, float> tile_C;
 #endif // VOLTA_MMA_AVAILABLE
 #endif // defined(AMD_WMMA_AVAILABLE)
-    if constexpr (!tile_A::supported() || !tile_B::supported() || !tile_C::supported()) {
+    if (!tile_A::supported() || !tile_B::supported() || !tile_C::supported()) {
         NO_DEVICE_CODE;
         return;
     }
@@ -95,7 +95,7 @@ static __global__ void mul_mat_f(
 
     const int channel_dst = has_ids ? 0 : blockIdx.y;
 
-    if constexpr (has_ids) {
+    if (has_ids) {
         // experts + tiles of ncols_dst are packed in the y dimension
         int col_tiles = (ncols_dst_total + cols_per_block - 1) / cols_per_block;
         const int nchannels_x = gridDim.y / col_tiles;
@@ -114,7 +114,7 @@ static __global__ void mul_mat_f(
     y   += int64_t(sample_y)  *stride_sample_y   + (has_ids ? 0 : channel_y  *stride_channel_y);
     dst += int64_t(sample_dst)*stride_sample_dst + (has_ids ? 0 : channel_dst*stride_channel_dst);
 
-    if constexpr (has_ids) {
+    if (has_ids) {
         constexpr int y_stride_scale = std::is_same_v<T, float> ? 1 : 2;
         const int64_t col_offset = col_base;
         y   += col_offset * stride_col_y * y_stride_scale;
@@ -134,7 +134,7 @@ static __global__ void mul_mat_f(
 
     T * tile_xy = (T *) compute_base + threadIdx.y*(tile_A::I * tile_k_padded);
 
-    if constexpr (has_ids) {
+    if (has_ids) {
         int found = 0;
 
         for (int j0 = 0; j0 < cols_per_block; j0 += nwarps) {
@@ -187,24 +187,24 @@ static __global__ void mul_mat_f(
 #pragma unroll
         for (int itB = 0; itB < ntB; ++itB) {
             ggml_cuda_syncwarp();
-            if constexpr (std::is_same_v<T, float>) {
+            if (std::is_same_v<T, float>) {
 #pragma unroll
                 for (int j0 = 0; j0 < tile_B::I; ++j0) {
                     const int j = j0 + itB*tile_B::I;
 
-                    if constexpr (!has_ids) {
+                    if (!has_ids) {
                         tile_xy[j0*tile_k_padded + threadIdx.x] = j < cols_per_block ? y[j*stride_col_y + col] : 0.0f;
                     } else {
                         const bool valid = j < cols_per_block && (col_base + j) < ncols_dst_total && slot_map[j] >= 0;
                         tile_xy[j0*tile_k_padded + threadIdx.x] = valid ? y[slot_map[j]*stride_channel_y + j*stride_col_y + col] : 0.0f;
                     }
                 }
-            } else if constexpr (std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) {
+            } else if (std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) {
 #pragma unroll
                 for (int j0 = 0; j0 < tile_B::I; ++j0) {
                     const int j = j0 + itB*tile_B::I;
 
-                    if constexpr (!has_ids) {
+                    if (!has_ids) {
                         const float2 tmp = j < cols_per_block ? y2[j*stride_col_y + col] : make_float2(0.0f, 0.0f);
                         tile_xy[j0*tile_k_padded + threadIdx.x] = ggml_cuda_cast<T>(tmp);
                     } else {
@@ -214,7 +214,7 @@ static __global__ void mul_mat_f(
                     }
                 }
             } else {
-                static_assert(std::is_same_v<T, void>, "unsupported type");
+                //static_assert(std::is_same_v<T, void>, "unsupported type");
             }
             ggml_cuda_syncwarp();
 #pragma unroll
@@ -276,7 +276,7 @@ static __global__ void mul_mat_f(
             }
         }
 
-        if constexpr (!has_ids) {
+        if (!has_ids) {
 #pragma unroll
             for (int i0 = 0; i0 < sizeof(sum)/sizeof(sum[0]); ++i0) {
                 dst[j*stride_col_dst + row0 + i0*warp_size + threadIdx.x] = sum[i0];
@@ -304,7 +304,7 @@ static __global__ void mul_mat_f(
 
 //This kernel is for larger batch sizes of mul_mat_id
 template <typename T, int rows_per_block, int cols_per_block, int nwarps>
-__launch_bounds__(ggml_cuda_get_physical_warp_size()*nwarps, 1)
+//__launch_bounds__(ggml_cuda_get_physical_warp_size()*nwarps, 1)
 static __global__ void mul_mat_f_ids(
         const T * __restrict__ x, const float * __restrict__ y,
         const int32_t * __restrict__ ids_src_compact, const int32_t * __restrict__ ids_dst_compact,
@@ -316,29 +316,29 @@ static __global__ void mul_mat_f_ids(
 // TODO: handle this in a consistent and simpler way after AMD MFMA support has been added
 #if defined(VOLTA_MMA_AVAILABLE) || defined(TURING_MMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE) || defined(AMD_MFMA_AVAILABLE)
 #if defined(AMD_WMMA_AVAILABLE)
-    if constexpr (!(std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
+    if (!(std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
     typedef tile<16, 8,  T,     get_input_data_layout()> tile_A;
     typedef tile<16, 8,  T,     get_input_data_layout()> tile_B;
     typedef tile<16, 16, float, DATA_LAYOUT_J_MAJOR>     tile_C;
 #elif defined(AMD_MFMA_AVAILABLE)
-    if constexpr (rows_per_block != MMF_ROWS_PER_BLOCK_CDNA) {NO_DEVICE_CODE;} else {
+    if (rows_per_block != MMF_ROWS_PER_BLOCK_CDNA) {NO_DEVICE_CODE;} else {
     typedef tile<16, 8,  T,     DATA_LAYOUT_I_MAJOR> tile_A;
     typedef tile<16, 8,  T,     DATA_LAYOUT_I_MAJOR> tile_B;
     typedef tile<16, 16, float, DATA_LAYOUT_J_MAJOR> tile_C;
 #else
 #ifdef VOLTA_MMA_AVAILABLE
-    if constexpr (!std::is_same_v<T, half2> || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
+    if (!std::is_same_v<T, half2> || rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
     typedef tile<32, 4, T,     DATA_LAYOUT_I_MAJOR>          tile_A;
     typedef tile< 8, 4, T,     DATA_LAYOUT_I_MAJOR_MIRRORED> tile_B;
     typedef tile<32, 8, float, DATA_LAYOUT_I_MAJOR>          tile_C;
 #else
-    if constexpr (rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
+    if (rows_per_block != MMF_ROWS_PER_BLOCK) {NO_DEVICE_CODE;} else {
     typedef tile<16, 8, T>     tile_A;
     typedef tile<8,  8, T>     tile_B;
     typedef tile<16, 8, float> tile_C;
 #endif // VOLTA_MMA_AVAILABLE
 #endif // defined(AMD_WMMA_AVAILABLE)
-    if constexpr (!tile_A::supported() || !tile_B::supported() || !tile_C::supported()) {
+    if (!tile_A::supported() || !tile_B::supported() || !tile_C::supported()) {
         NO_DEVICE_CODE;
         return;
     }
@@ -403,7 +403,7 @@ static __global__ void mul_mat_f_ids(
             }
         }
 
-        if constexpr (std::is_same_v<T, float>) {
+        if (std::is_same_v<T, float>) {
             float vals_buf[2][tile_B::I];
             auto gather_tile = [&](int tile_idx_local, float *vals) {
 #pragma unroll
@@ -456,7 +456,7 @@ static __global__ void mul_mat_f_ids(
                     next_buf ^= 1;
                 }
             }
-        } else if constexpr (std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) {
+        } else if (std::is_same_v<T, half2> || std::is_same_v<T, nv_bfloat162>) {
             float2 vals_buf[2][tile_B::I];
             auto gather_tile = [&](int tile_idx_local, float2 *vals) {
 #pragma unroll
@@ -513,7 +513,7 @@ static __global__ void mul_mat_f_ids(
                 }
             }
         } else {
-            static_assert(std::is_same_v<T, void>, "unsupported type");
+            //static_assert(std::is_same_v<T, void>, "unsupported type");
         }
     }
 

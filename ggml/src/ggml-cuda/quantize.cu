@@ -134,7 +134,7 @@ static __global__ void quantize_mmq_nvfp4(
     const int64_t blocks_per_col = (ne0 + QK_FP4_MMQ - 1) / QK_FP4_MMQ;
 
     int64_t base_idx;
-    if constexpr (scatter) {
+    if (scatter) {
         base_idx = (int64_t) blockIdx.x * s02; // one physical row per token
     } else {
         const int64_t i2  = blockIdx.y % ne2;
@@ -145,7 +145,7 @@ static __global__ void quantize_mmq_nvfp4(
     const float * __restrict__  x_row = x + base_idx;
 
     float amax = 0.0f;
-    if constexpr (use_aligned_float8) {
+    if (use_aligned_float8) {
         for (int64_t i0 = 8 * threadIdx.x; i0 < ne00; i0 += 8 * blockDim.x) {
             const float * x_base = x_row + i0;
             const float8 v = reinterpret_cast<const float8 *>(x_base)[0];
@@ -180,7 +180,7 @@ static __global__ void quantize_mmq_nvfp4(
         amax = warp_reduce_max<WARP_SIZE>(amax);
         if (lane == 0) {
             warp_amax[0] = amax / (6.0f * 448.0f);
-            if constexpr (scatter) {
+            if (scatter) {
 #pragma unroll
                 for (int slot = 0; slot < n_expert_used; ++slot) {
                     const int64_t i = ids[(int64_t) blockIdx.x * n_expert_used + slot];
@@ -205,7 +205,7 @@ static __global__ void quantize_mmq_nvfp4(
         const float inv_col_scale = row_scale > 0.0f ? 1.0f / row_scale : 0.0f;
 
         float vals[QK_NVFP4_SUB];
-        if constexpr (use_aligned_float8) {
+        if (use_aligned_float8) {
             const float * x_base = x_row + i0_base;
             const float8 v0 = i0_base +  7 < ne00 ? reinterpret_cast<const float8 *>(x_base)[0]     : float8{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
             const float8 v1 = i0_base + 15 < ne00 ? reinterpret_cast<const float8 *>(x_base + 8)[0] : float8{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -306,7 +306,7 @@ static __global__ void quantize_mmq_nvfp4(
         }
 #endif // CUDART_VERSION >= 12080
 
-        if constexpr (scatter) {
+        if (scatter) {
 #pragma unroll
             for (int slot = 0; slot < n_expert_used; ++slot) {
                 const int64_t i = ids[(int64_t) blockIdx.x * n_expert_used + slot];
@@ -370,7 +370,7 @@ static __global__ void quantize_mmq_mxfp4(const float * __restrict__ x,
 
     ggml_cuda_pdl_sync();
     int64_t base_pos;
-    if constexpr (scatter) {
+    if (scatter) {
         base_pos = (int64_t) blockIdx.x * s02; // one physical row per token
     } else {
         const int64_t i2  = blockIdx.z % ne2;
@@ -424,7 +424,7 @@ static __global__ void quantize_mmq_mxfp4(const float * __restrict__ x,
     }
 
     block_fp4_mmq * y = (block_fp4_mmq *) vy;
-    if constexpr (scatter) {
+    if (scatter) {
 #pragma unroll
         for (int slot = 0; slot < n_expert_used; ++slot) {
             const int64_t i = ids[(int64_t) blockIdx.x * n_expert_used + slot];
@@ -473,7 +473,7 @@ static __global__ void quantize_mmq_q8_1(
     ggml_cuda_pdl_sync();
 
     int64_t base_idx;
-    if constexpr (scatter) {
+    if (scatter) {
         base_idx = (int64_t) blockIdx.x * s02; // one physical row per token
     } else {
         const int64_t i2  = blockIdx.z % ne2;
@@ -525,7 +525,7 @@ static __global__ void quantize_mmq_q8_1(
 #pragma unroll
     for (int slot = 0; slot < nwrite; ++slot) {
         int64_t ib;
-        if constexpr (scatter) {
+        if (scatter) {
             const int64_t i = ids[(int64_t) blockIdx.x * n_expert_used + slot];
             ib = k_block*ne1 + i;
         } else {

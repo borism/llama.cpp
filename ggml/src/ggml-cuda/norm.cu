@@ -111,14 +111,14 @@ static __global__ void rms_norm_f32(const float * x,
     x   += sample*stride_sample + channel*stride_channel + row*stride_row;
     dst += ((sample*nchannels + channel)*nrows + row)*ncols;
 
-    if constexpr (do_multiply) {
+    if (do_multiply) {
         const uint32_t mul_row     = fastmodulo(row, mul_nrows_packed);
         const uint32_t mul_channel = fastmodulo(channel, mul_nchannels_packed);
         const uint32_t mul_sample  = fastmodulo(sample, mul_nsamples_packed);
         mul += mul_sample * mul_stride_sample + mul_channel * mul_stride_channel + mul_row * mul_stride_row;
     }
 
-    if constexpr (do_add) {
+    if (do_add) {
         const int add_row     = fastmodulo(row, add_nrows_packed);
         const int add_channel = fastmodulo(channel, add_nchannels_packed);
         const int add_sample  = fastmodulo(sample, add_nsamples_packed);
@@ -141,11 +141,11 @@ static __global__ void rms_norm_f32(const float * x,
     const float scale = rsqrtf(mean + eps);
 
     for (int col = tid; col < ncols; col += block_size) {
-        if constexpr (do_multiply && do_add) {
+        if (do_multiply && do_add) {
             const int mul_col = fastmodulo(col, mul_ncols_packed);
             const int add_col = fastmodulo(col, add_ncols_packed);
             dst[col]          = scale * x[col] * mul[mul_col] + add[add_col];
-        } else if constexpr (do_multiply) {
+        } else if (do_multiply) {
             const int mul_col = fastmodulo(col, mul_ncols_packed);
             dst[col]          = scale * x[col] * mul[mul_col];
         } else {
@@ -177,8 +177,8 @@ static __global__ void rms_norm_back_f32(
     // sum up partial sums
     sum_xx = warp_reduce_sum(sum_xx);
     sum_xg = warp_reduce_sum(sum_xg);
-    if constexpr (block_size > WARP_SIZE) {
-        static_assert(block_size == 1024, "unexpected block_size");
+    if (block_size > WARP_SIZE) {
+        //static_assert(block_size == 1024, "unexpected block_size");
         __shared__ float s_sum_xx[32];
         __shared__ float s_sum_xg[32];
         const int warp_id = threadIdx.x / WARP_SIZE;

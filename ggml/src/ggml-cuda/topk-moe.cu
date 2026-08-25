@@ -153,7 +153,7 @@ __global__ void topk_moe_cuda(const float *         logits,
     // when no bias, we use wt directly for both selection and weight values
     [[maybe_unused]] float selection_wt[has_bias ? experts_per_thread : 1];
 
-    if constexpr (has_bias) {
+    if (has_bias) {
 #pragma unroll
         for (int i = 0; i < experts_per_thread; i++) {
             selection_wt[i] = -INFINITY;
@@ -184,7 +184,7 @@ __global__ void topk_moe_cuda(const float *         logits,
         float max_val    = wt[0];
         int   max_expert = threadIdx.x;
 
-        if constexpr (has_bias) {
+        if (has_bias) {
             float max_val_s = selection_wt[0];
 
 #pragma unroll

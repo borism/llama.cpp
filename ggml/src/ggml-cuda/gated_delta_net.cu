@@ -81,7 +81,7 @@ gated_delta_net_cuda(const float * q,
             q_reg[r] = q_t[i];
         }
 
-        if constexpr (!KDA) {
+        if (!KDA) {
             const float g_val = expf(*g_t);
 
             // kv[col] = (S^T @ k)[col] = sum_i S[i][col] * k[i]
@@ -142,7 +142,7 @@ gated_delta_net_cuda(const float * q,
 
         attn_data += S_v * H;
 
-        if constexpr (keep_rs_t) {
+        if (keep_rs_t) {
             // snapshot slot mapping: slot 0 = most recent state, slot s = s tokens back.
             // When n_tokens < K only slots 0..n_tokens-1 are written; older slots are caller-owned.
             const int target_slot = (int) n_tokens - 1 - t;
@@ -157,7 +157,7 @@ gated_delta_net_cuda(const float * q,
         }
     }
 
-    if constexpr (!keep_rs_t) {
+    if (!keep_rs_t) {
 #pragma unroll
         for (int r = 0; r < rows_per_lane; r++) {
             const int i          = r * warp_size + lane;

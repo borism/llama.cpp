@@ -26,7 +26,7 @@ static __global__ void mul_mat_vec_f(
     int sample_dst;
 
     ggml_cuda_pdl_sync();
-    if constexpr (is_multi_token_id) {
+    if (is_multi_token_id) {
         // Multi-token MUL_MAT_ID path, adding these in the normal path causes a perf regression for n_tokens=1 case
         token_idx  = blockIdx.z;
         channel_x  = ids[channel_dst + token_idx * ids_stride];
@@ -47,7 +47,7 @@ static __global__ void mul_mat_vec_f(
     x   += int64_t(sample_x)  *stride_sample_x   + channel_x  *stride_channel_x   + row*stride_row;
     y   += int64_t(sample_y)  *stride_sample_y   + channel_y  *stride_channel_y;
     dst += int64_t(sample_dst)*stride_sample_dst + channel_dst*stride_channel_dst;
-    if constexpr (is_multi_token_id) {
+    if (is_multi_token_id) {
         y   += token_idx*stride_col_y2*2;
         dst += token_idx*stride_col_dst;
     }
@@ -61,7 +61,7 @@ static __global__ void mul_mat_vec_f(
     const float * x_bias = nullptr;
     const float * gate_bias = nullptr;
 
-    if constexpr (has_fusion) {
+    if (has_fusion) {
         use_gate = fusion.gate != nullptr;
         use_bias = fusion.x_bias != nullptr;
         use_gate_bias = fusion.gate_bias != nullptr;
@@ -86,7 +86,7 @@ static __global__ void mul_mat_vec_f(
         gate_x += int64_t(sample_x)  *stride_sample_x   + channel_x  *stride_channel_x   + row*stride_row;
     }
 
-    if constexpr (has_fusion) {
+    if (has_fusion) {
         const int channel_bias = ids ? channel_x : channel_dst;
         if (use_bias) {
             x_bias += int64_t(sample_dst)*stride_sample_dst + channel_bias*stride_channel_dst;
@@ -101,14 +101,14 @@ static __global__ void mul_mat_vec_f(
     extern __shared__ char data_mmv[];
     float * buf_iw = (float *) data_mmv;
     [[maybe_unused]] float * buf_iw_gate = nullptr;
-    if constexpr (has_fusion) {
+    if (has_fusion) {
         buf_iw_gate = (float *) (data_mmv + warp_size*sizeof(float));
     }
 
     if (block_size > warp_size) {
         if (tid < warp_size) {
             buf_iw[tid] = 0.0f;
-            if constexpr (has_fusion) {
+            if (has_fusion) {
                 if (use_gate) {
                     buf_iw_gate[tid] = 0.0f;
                 }
@@ -119,17 +119,17 @@ static __global__ void mul_mat_vec_f(
 
     float sumf[ncols_dst] = {0.0f};
     float sumf_gate[ncols_dst];
-    if constexpr (has_fusion) {
+    if (has_fusion) {
 #pragma unroll
         for (int j = 0; j < ncols_dst; ++j) {
             sumf_gate[j] = 0.0f;
         }
     }
 
-    if constexpr (std::is_same_v<T, float>) {
+    if (std::is_same_v<T, float>) {
         const float2 * x2 = (const float2 *) x;
         [[maybe_unused]] const float2 * gate_x2 = nullptr;
-        if constexpr (has_fusion) {
+        if (has_fusion) {
             if (use_gate) {
                 gate_x2 = (const float2 *) gate_x;
             }
@@ -138,7 +138,7 @@ static __global__ void mul_mat_vec_f(
         for (int col2 = tid; col2 < ncols2; col2 += block_size) {
             const float2 tmpx = x2[col2];
             float2 tmpx_gate = make_float2(0.0f, 0.0f);
-            if constexpr (has_fusion) {
+            if (has_fusion) {
                 if (use_gate) {
                     tmpx_gate = gate_x2[col2];
                 }
@@ -150,7 +150,7 @@ static __global__ void mul_mat_vec_f(
                 ggml_cuda_mad(sumf[j], tmpx.x, tmpy.x);
                 ggml_cuda_mad(sumf[j], tmpx.y, tmpy.y);
 
-                if constexpr (has_fusion) {
+                if (has_fusion) {
                     if (use_gate) {
                         ggml_cuda_mad(sumf_gate[j], tmpx_gate.x, tmpy.x);
                         ggml_cuda_mad(sumf_gate[j], tmpx_gate.y, tmpy.y);
@@ -158,10 +158,10 @@ static __global__ void mul_mat_vec_f(
                 }
             }
         }
-    } else if constexpr (std::is_same_v<T, half>) {
+    } else if (std::is_same_v<T, half>) {
         const half2 * x2 = (const half2 *) x;
         [[maybe_unused]] const half2 * gate_x2 = nullptr;
-        if constexpr (has_fusion) {
+        if (has_fusion) {
             if (use_gate) {
                 gate_x2 = (const half2 *) gate_x;
             }
@@ -171,7 +171,7 @@ static __global__ void mul_mat_vec_f(
             for (int col2 = tid; col2 < ncols2; col2 += block_size) {
                 const float2 tmpx = __half22float2(x2[col2]);
                 float2 tmpx_gate = make_float2(0.0f, 0.0f);
-                if constexpr (has_fusion) {
+                if (has_fusion) {
                     if (use_gate) {
                         tmpx_gate = __half22float2(gate_x2[col2]);
                     }
@@ -182,7 +182,7 @@ static __global__ void mul_mat_vec_f(
                     ggml_cuda_mad(sumf[j], tmpx.x, tmpy.x);
                     ggml_cuda_mad(sumf[j], tmpx.y, tmpy.y);
 
-                    if constexpr (has_fusion) {
+                    if (has_fusion) {
                         if (use_gate) {
                             ggml_cuda_mad(sumf_gate[j], tmpx_gate.x, tmpy.x);
                             ggml_cuda_mad(sumf_gate[j], tmpx_gate.y, tmpy.y);
@@ -198,7 +198,7 @@ static __global__ void mul_mat_vec_f(
             for (int col2 = tid; col2 < ncols2; col2 += block_size) {
                 const half2 tmpx = x2[col2];
                 half2 tmpx_gate = make_half2(0.0f, 0.0f);
-                if constexpr (has_fusion) {
+                if (has_fusion) {
                     if (use_gate) {
                         tmpx_gate = gate_x2[col2];
                     }
@@ -208,7 +208,7 @@ static __global__ void mul_mat_vec_f(
                     const float2 tmpy = y2[j*stride_col_y2 + col2];
                     sumh2[j] += tmpx * make_half2(tmpy.x, tmpy.y);
 
-                    if constexpr (has_fusion) {
+                    if (has_fusion) {
                         if (use_gate) {
                             sumh2_gate[j] += tmpx_gate * make_half2(tmpy.x, tmpy.y);
                         }
@@ -221,7 +221,7 @@ static __global__ void mul_mat_vec_f(
                 sumf[j] = __low2float(sumh2[j]) + __high2float(sumh2[j]);
             }
 
-            if constexpr (has_fusion) {
+            if (has_fusion) {
                 if (use_gate) {
 #pragma unroll
                     for (int j = 0; j < ncols_dst; ++j) {
@@ -233,12 +233,12 @@ static __global__ void mul_mat_vec_f(
             NO_DEVICE_CODE;
 #endif // FP16_AVAILABLE
         }
-    } else if constexpr (std::is_same_v<T, nv_bfloat16>) {
+    } else if (std::is_same_v<T, nv_bfloat16>) {
 //TODO: add support for ggml_cuda_mad for hip_bfloat162
 #if defined(GGML_USE_HIP)
         const int * x2 = (const int *) x;
         const int * gate_x2 = nullptr;
-        if constexpr (has_fusion) {
+        if (has_fusion) {
             if (use_gate) {
                 gate_x2 = (const int *) gate_x;
             }
@@ -246,7 +246,7 @@ static __global__ void mul_mat_vec_f(
         for (int col2 = tid; col2 < ncols2; col2 += block_size) {
             const int tmpx = x2[col2];
             int tmpx_gate = 0;
-            if constexpr (has_fusion) {
+            if (has_fusion) {
                 if (use_gate) {
                     tmpx_gate = gate_x2[col2];
                 }
@@ -259,7 +259,7 @@ static __global__ void mul_mat_vec_f(
                 ggml_cuda_mad(sumf[j], tmpx0, tmpy.x);
                 ggml_cuda_mad(sumf[j], tmpx1, tmpy.y);
 
-                if constexpr (has_fusion) {
+                if (has_fusion) {
                     if (use_gate) {
                         const float tmpx0_gate = ggml_cuda_cast<float>(reinterpret_cast<const nv_bfloat16 *>(&tmpx_gate)[0]);
                         const float tmpx1_gate = ggml_cuda_cast<float>(reinterpret_cast<const nv_bfloat16 *>(&tmpx_gate)[1]);
@@ -272,7 +272,7 @@ static __global__ void mul_mat_vec_f(
 #else
         const nv_bfloat162 * x2 = (const nv_bfloat162 *) x;
         [[maybe_unused]] const nv_bfloat162 * gate_x2 = nullptr;
-        if constexpr (has_fusion) {
+        if (has_fusion) {
             if (use_gate) {
                 gate_x2 = (const nv_bfloat162 *) gate_x;
             }
@@ -280,7 +280,7 @@ static __global__ void mul_mat_vec_f(
         for (int col2 = tid; col2 < ncols2; col2 += block_size) {
             const nv_bfloat162 tmpx = x2[col2];
             [[maybe_unused]] nv_bfloat162 tmpx_gate;
-            if constexpr (has_fusion) {
+            if (has_fusion) {
                 if (use_gate) {
                     tmpx_gate = gate_x2[col2];
                 }
@@ -291,7 +291,7 @@ static __global__ void mul_mat_vec_f(
                 ggml_cuda_mad(sumf[j], tmpx.x, tmpy.x);
                 ggml_cuda_mad(sumf[j], tmpx.y, tmpy.y);
 
-                if constexpr (has_fusion) {
+                if (has_fusion) {
                     if (use_gate) {
                         ggml_cuda_mad(sumf_gate[j], tmpx_gate.x, tmpy.x);
                         ggml_cuda_mad(sumf_gate[j], tmpx_gate.y, tmpy.y);
@@ -301,7 +301,7 @@ static __global__ void mul_mat_vec_f(
         }
 #endif
     } else {
-        static_assert(std::is_same_v<T, void>, "unsupported type");
+        //static_assert(std::is_same_v<T, void>, "unsupported type");
     }
 
     ggml_cuda_pdl_lc();
@@ -309,7 +309,7 @@ static __global__ void mul_mat_vec_f(
     for (int j = 0; j < ncols_dst; ++j) {
         sumf[j] = warp_reduce_sum<warp_size>(sumf[j]);
 
-        if constexpr (has_fusion) {
+        if (has_fusion) {
             if (use_gate) {
                 sumf_gate[j] = warp_reduce_sum<warp_size>(sumf_gate[j]);
             }
@@ -317,7 +317,7 @@ static __global__ void mul_mat_vec_f(
 
         if (block_size > warp_size) {
             buf_iw[tid/warp_size] = sumf[j];
-            if constexpr (has_fusion) {
+            if (has_fusion) {
                 if (use_gate) {
                     buf_iw_gate[tid/warp_size] = sumf_gate[j];
                 }
@@ -326,7 +326,7 @@ static __global__ void mul_mat_vec_f(
             if (tid < warp_size) {
                 sumf[j] = buf_iw[tid];
                 sumf[j] = warp_reduce_sum<warp_size>(sumf[j]);
-                if constexpr (has_fusion) {
+                if (has_fusion) {
                     if (use_gate) {
                         sumf_gate[j] = buf_iw_gate[tid];
                         sumf_gate[j] = warp_reduce_sum<warp_size>(sumf_gate[j]);
@@ -346,7 +346,7 @@ static __global__ void mul_mat_vec_f(
 
     float value = sumf[tid];
 
-    if constexpr (has_fusion) {
+    if (has_fusion) {
         if (use_bias) {
             value += x_bias[tid*stride_col_dst + row];
         }
@@ -378,7 +378,7 @@ static __global__ void mul_mat_vec_f(
 
     dst[tid*stride_col_dst + row] = value;
 
-    if constexpr (!has_fusion) {
+    if (!has_fusion) {
         GGML_UNUSED_VARS(use_gate, use_bias, use_gate_bias, glu_op, glu_limit, gate_x, x_bias, gate_bias, sumf_gate);
     }
 }
@@ -395,7 +395,7 @@ static void mul_mat_vec_f_switch_fusion(
     const ggml_cuda_kernel_launch_params launch_params = {block_nums, block_dims, nbytes_shared, stream};
 
     const bool has_fusion = fusion.gate != nullptr || fusion.x_bias != nullptr || fusion.gate_bias != nullptr;
-    if constexpr (ncols_dst == 1) {
+    if (ncols_dst == 1) {
         if (has_fusion) {
             ggml_cuda_kernel_launch(mul_mat_vec_f<T, type_acc, ncols_dst, block_size, true, is_multi_token_id>, launch_params,
                 x, y, ids, fusion, dst, ncols, nchannels_y, stride_row, stride_col_y, stride_col_dst,
@@ -616,7 +616,7 @@ static void mul_mat_vec_f_cuda(
         const int64_t nsamples_dst, const int64_t stride_sample_x, const int64_t stride_sample_y, const int64_t stride_sample_dst,
         const int64_t ids_stride, enum ggml_prec prec, cudaStream_t stream) {
 
-    if constexpr(std::is_same_v<T, half>) {
+    if(std::is_same_v<T, half>) {
         if (prec == GGML_PREC_DEFAULT) {
             mul_mat_vec_f_cuda_switch_ncols_dst<T, half>
                 (x, y, ids, fusion, dst, ncols, nrows, ncols_dst, stride_row, stride_col_y, stride_col_dst,

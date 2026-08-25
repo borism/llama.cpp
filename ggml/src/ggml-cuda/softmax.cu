@@ -4,7 +4,7 @@
 
 #ifdef GGML_USE_HIP
 #include <hip/hip_cooperative_groups.h>
-#else
+#elif CUDART_VERSION >= 11000
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 #endif // GGML_USE_HIP
@@ -142,6 +142,7 @@ static __global__ void soft_max_f32(
     }
 }
 
+#if CUDART_VERSION >= 11000
 // TODO: Template to allow keeping ncols in registers if they fit
 static __device__ void soft_max_f32_parallelize_cols_single_row(const float * __restrict__ x,
                                                                 float * __restrict__ dst,
@@ -248,6 +249,7 @@ static __device__ void soft_max_f32_parallelize_cols_single_row(const float * __
         col += step_size * n_elem_per_thread;
     }
 }
+#endif // CUDART_VERSION >= 11000
 
 #ifdef __clang__
 #pragma clang diagnostic pop
@@ -275,6 +277,22 @@ static __global__ void soft_max_back_f32(
     }
 }
 
+// Recursive C++14 stand-in for the upstream `(f(Ns) || ...)` unary fold
+// expression (a C++17 language feature nvcc 10 doesn't support). F is left
+// to be deduced (trailing template param) rather than given explicitly, so
+// callers can pass an lvalue lambda without an rvalue-reference mismatch.
+template <typename F>
+static bool try_launch_soft_max_kernel(F &&) {
+    return false;
+}
+template <int N0, int... Ns2, typename F>
+static bool try_launch_soft_max_kernel(F && f) {
+    if (f(std::integral_constant<int, N0>{})) {
+        return true;
+    }
+    return try_launch_soft_max_kernel<Ns2...>(std::forward<F>(f));
+}
+
 template<int... Ns, typename T>
 static void launch_soft_max_kernels(const float * x, const T * mask, const float * sinks, float * dst,
                              const soft_max_params & p, cudaStream_t stream, dim3 block_dims, dim3 block_nums, size_t nbytes_shared)
@@ -295,8 +313,7 @@ static void launch_soft_max_kernels(const float * x, const T * mask, const float
         return false;
     };
 
-    // unary fold over launch_kernel
-    if ((launch_kernel(std::integral_constant<int, Ns>{}) || ...)) {
+    if (try_launch_soft_max_kernel<Ns...>(launch_kernel)) {
         return;
     }
 
@@ -305,6 +322,7 @@ static void launch_soft_max_kernels(const float * x, const T * mask, const float
     soft_max_f32<true, 0, 0><<<block_nums, block_dims, nbytes_shared, stream>>>(x, mask, sinks, dst, p);
 }
 
+#if CUDART_VERSION >= 11000
 __launch_bounds__(8*WARP_SIZE, 1) static __global__ void soft_max_f32_parallelize_cols(const float * __restrict__ x,
                                                      float * __restrict__ dst,
                                                      float * __restrict__ tmp_maxs,
@@ -323,6 +341,7 @@ __launch_bounds__(8*WARP_SIZE, 1) static __global__ void soft_max_f32_paralleliz
                                                  tmp_sums, shared_vals[0], shared_vals[1], p);
     }
 }
+#endif // CUDART_VERSION >= 11000
 
 template <typename T>
 static void soft_max_f32_cuda(const float *                                x,
@@ -352,6 +371,7 @@ static void soft_max_f32_cuda(const float *                                x,
         // Parallelize across SMs for top-p/dist-sampling
         // The heuristic for parallelizing rows across SMs vs parallelizing single row & looping over all rows was done on the basis of a B6000 GPU and
         // Can be adapted further for lower-SM-count GPUs, though keeping data in registers should be implemented first as that is the optimal solution.
+#if CUDART_VERSION >= 11000
         if (ggml_cuda_info().devices[id].supports_cooperative_launch &&
             ncols_x / (params.ne01 * params.ne02 * params.ne03) > 8192 && mask == nullptr && sinks == nullptr &&
             params.scale == 1.0f && params.max_bias == 0.0f) {
@@ -363,7 +383,9 @@ static void soft_max_f32_cuda(const float *                                x,
             CUDA_CHECK(cudaLaunchCooperativeKernel((void *) soft_max_f32_parallelize_cols,
                                                    dim3(ggml_cuda_info().devices[id].nsm, 1, 1),
                                                    dim3(WARP_SIZE * 8, 1, 1), kernel_args, 0, stream));
-        } else {
+        } else
+#endif // CUDART_VERSION >= 11000
+        {
             const size_t nbytes_shared_low = WARP_SIZE * sizeof(float);
             soft_max_f32<false, 0, 0>
                 <<<block_nums, block_dims, nbytes_shared_low, stream>>>(x, mask, sinks, dst, params);
