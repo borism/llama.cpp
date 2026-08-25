@@ -2,59 +2,14 @@
 #include "fattn-tile.cuh"
 
 void ggml_cuda_flash_attn_ext_tile(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
-    const ggml_tensor * K = dst->src[1];
-    const ggml_tensor * V = dst->src[2];
-    switch (K->ne[0]) {
-        case  40: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case< 40,  40>(ctx, dst);
-        } break;
-        case  64: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case< 64,  64>(ctx, dst);
-        } break;
-        case  72: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case< 72,  72>(ctx, dst);
-        } break;
-        case  80: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case< 80,  80>(ctx, dst);
-        } break;
-        case  96: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case< 96,  96>(ctx, dst);
-        } break;
-        case 112: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case<112, 112>(ctx, dst);
-        } break;
-        case 128: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case<128, 128>(ctx, dst);
-        } break;
-        case 192: {
-            GGML_ASSERT(V->ne[0] == 128);
-            ggml_cuda_flash_attn_ext_tile_case<192, 128>(ctx, dst);
-        } break;
-        case 256: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case<256, 256>(ctx, dst);
-        } break;
-        case 320: {
-            GGML_ASSERT(V->ne[0] == 256);
-            ggml_cuda_flash_attn_ext_tile_case<320, 256>(ctx, dst);
-        } break;
-        case 512: {
-            GGML_ASSERT(V->ne[0] == K->ne[0]);
-            ggml_cuda_flash_attn_ext_tile_case<512, 512>(ctx, dst);
-        } break;
-        case 576: {
-            GGML_ASSERT(V->ne[0] == 512);
-            ggml_cuda_flash_attn_ext_tile_case<576, 512>(ctx, dst);
-        } break;
-        default: {
-            GGML_ABORT("Unsupported head size");
-        } break;
-    }
+    GGML_UNUSED(ctx);
+    GGML_UNUSED(dst);
+    // Disabled on this board: this CUDA 10 / C++14 build cannot use
+    // if-constexpr, and fattn-tile.cuh's per-(DKQ,DV,ncols1,ncols2) config
+    // validity checks rely on it throughout -- confirmed broken even for
+    // ordinary symmetric head dims, not just DeepSeek-MLA's asymmetric ones.
+    // ggml_cuda_flash_attn_ext_supported() always returns false, so llama.cpp
+    // uses its unfused (explicit softmax) attention path instead; this should
+    // never actually be reached.
+    GGML_ABORT("flash attention (tile kernel) is disabled in this CUDA 10 build");
 }

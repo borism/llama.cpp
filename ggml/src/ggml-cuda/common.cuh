@@ -8,6 +8,11 @@
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <type_traits>
+
+#if __cplusplus < 201703L
+namespace std { template<typename T, typename U> constexpr bool is_same_v = std::is_same<T, U>::value; }
+#endif
 
 #if defined(GGML_USE_HIP)
 #define GGML_COMMON_DECL_HIP
@@ -577,55 +582,14 @@ template<block_reduce_method method_t, typename T>
 struct block_reduce_policy;
 
 template <typename T, typename... Ts>
-inline constexpr bool is_any = (std::is_same_v<T, Ts> || ...);
+struct is_any_impl : std::integral_constant<bool, false> {};
+template <typename T, typename U, typename... Ts>
+struct is_any_impl<T, U, Ts...> : std::integral_constant<bool, std::is_same<T, U>::value || is_any_impl<T, Ts...>::value> {};
+template <typename T, typename... Ts>
+inline constexpr bool is_any = is_any_impl<T, Ts...>::value;
 
 template<typename...>
 inline constexpr bool ggml_cuda_dependent_false_v = false;
-
-template <typename T> struct block_reduce_policy<block_reduce_method::SUM, T> {
-    static __device__ T reduce(T val) {
-        if constexpr(is_any<T, float, float2, half2, int>) {
-            return warp_reduce_sum(val);
-        } else {
-            static_assert(ggml_cuda_dependent_false_v<T>, "Unsupported type for block reduce sum");
-        }
-    }
-
-    static __device__ T sentinel() {
-        if constexpr (std::is_same_v<T, float>) {
-            return 0.0f;
-        } else if constexpr (std::is_same_v<T, float2>) {
-            return make_float2(0.0f, 0.0f);
-        } else if constexpr (std::is_same_v<T, half2>) {
-            return make_half2(0.0f, 0.0f);
-        } else if constexpr (std::is_same_v<T, int>) {
-            return 0;
-        } else {
-            static_assert(ggml_cuda_dependent_false_v<T>, "Unsupported type for block reduce sum");
-        }
-    }
-};
-
-template <typename T> struct block_reduce_policy<block_reduce_method::MAX, T> {
-    static __device__ T reduce(T val) {
-        if constexpr (is_any<T, float, half2>) {
-            return warp_reduce_max(val);
-        } else {
-            static_assert(ggml_cuda_dependent_false_v<T>, "Unsupported type for block reduce max");
-        }
-    }
-
-    static __device__ T sentinel() {
-        if constexpr (std::is_same_v<T, float>) {
-            return -INFINITY;
-        } else if constexpr (std::is_same_v<T, half2>) {
-            return make_half2(-INFINITY, -INFINITY);
-        } else {
-            static_assert(ggml_cuda_dependent_false_v<T>, "Unsupported type for block reduce max");
-        }
-    }
-};
-
 template <block_reduce_method reduce_method_t, const unsigned int block_size_template = 0, typename T>
 static __device__ T block_reduce(T val, [[maybe_unused]] T * shared_vals) {
     // for multi-warp reductions, callers must not reuse shared_vals until all reads from this invocation have completed
@@ -691,6 +655,40 @@ static __device__ __forceinline__ half2 warp_reduce_max(half2 x) {
    NO_DEVICE_CODE;
 #endif // !defined(GGML_USE_HIP) && __CUDA_ARCH__ >= GGML_CUDA_CC_PASCAL || defined(GGML_USE_HIP)
 }
+
+
+// Rewritten from the upstream generic-T-plus-runtime-if form as explicit
+// per-type specializations: this CUDA 10 / C++14 build has no if-constexpr,
+// and these functions return a different concrete type per branch (float,
+// float2, half2, int), which a plain runtime if cannot express (every
+// branch's return statement would need to convert to every other branch's
+// type to type-check as one function).
+template <> struct block_reduce_policy<block_reduce_method::SUM, float> {
+    static __device__ float reduce(float val) { return warp_reduce_sum(val); }
+    static __device__ float sentinel() { return 0.0f; }
+};
+template <> struct block_reduce_policy<block_reduce_method::SUM, float2> {
+    static __device__ float2 reduce(float2 val) { return warp_reduce_sum(val); }
+    static __device__ float2 sentinel() { return make_float2(0.0f, 0.0f); }
+};
+template <> struct block_reduce_policy<block_reduce_method::SUM, half2> {
+    static __device__ half2 reduce(half2 val) { return warp_reduce_sum(val); }
+    static __device__ half2 sentinel() { return make_half2(0.0f, 0.0f); }
+};
+template <> struct block_reduce_policy<block_reduce_method::SUM, int> {
+    static __device__ int reduce(int val) { return warp_reduce_sum(val); }
+    static __device__ int sentinel() { return 0; }
+};
+
+template <> struct block_reduce_policy<block_reduce_method::MAX, float> {
+    static __device__ float reduce(float val) { return warp_reduce_max(val); }
+    static __device__ float sentinel() { return -INFINITY; }
+};
+template <> struct block_reduce_policy<block_reduce_method::MAX, half2> {
+    static __device__ half2 reduce(half2 val) { return warp_reduce_max(val); }
+    static __device__ half2 sentinel() { return make_half2(-INFINITY, -INFINITY); }
+};
+
 
 #if (defined(CUDART_VERSION) && CUDART_VERSION < CUDART_HMASK) || defined(GGML_USE_HIP) || \
     (defined(MUSART_VERSION) && MUSART_VERSION < MUSART_HMASK)
@@ -796,25 +794,25 @@ static __device__ __forceinline__ void ggml_cuda_memcpy_1(void * __restrict__ ds
         "The intent is for the parameter is only as a workaround if either one of the pointers is not properly aligned. "
         "If you use it to do more bytes per copy than ggml_cuda_max_cpy_bytes() the reads and writes may not be coalesced. "
         "Call ggml_cuda_memcpy_1 in a loop instead.");
-    if constexpr (alignment != 0) {
-        static_assert(nbytes % alignment == 0, "bad alignment");
+    if (alignment != 0) {
+        //        static_assert(nbytes % alignment == 0, "bad alignment");
     }
     constexpr int nb_per_cpy = alignment == 0 ? nbytes : alignment;
 
 #pragma unroll
     for (int i = 0; i < nbytes/nb_per_cpy; ++i) {
-        if constexpr (nb_per_cpy == 1) {
+        if (nb_per_cpy == 1) {
             ((char *) dst)[i] = ((const char *) src)[i];
-        } else if constexpr (nb_per_cpy == 2) {
+        } else if (nb_per_cpy == 2) {
             ((short *) dst)[i] = ((const short *) src)[i];
-        } else if constexpr (nb_per_cpy == 4) {
+        } else if (nb_per_cpy == 4) {
             ((int *) dst)[i] = ((const int *) src)[i];
-        } else if constexpr (nb_per_cpy == 8) {
+        } else if (nb_per_cpy == 8) {
             ((int2 *) dst)[i] = ((const int2 *) src)[i];
-        } else if constexpr (nb_per_cpy == 16) {
+        } else if (nb_per_cpy == 16) {
             ((int4 *) dst)[i] = ((const int4 *) src)[i];
         } else {
-            static_assert(nbytes == 0 && nbytes == -1, "bad nbytes");
+            //            static_assert(nbytes == 0 && nbytes == -1, "bad nbytes");
         }
     }
 }
@@ -1312,7 +1310,9 @@ struct ggml_cuda_concurrent_event {
         const int64_t       join_start = (int64_t) join_t->data;
         const int64_t       join_end   = join_start + ggml_nbytes(join_t);
 
-        for (const auto & [tensor, stream] : stream_mapping) {
+        for (const auto & kv : stream_mapping) {
+            const ggml_tensor * const tensor = kv.first;
+            const int stream = kv.second;
             const ggml_tensor * t = tensor->view_src ? tensor->view_src : tensor;
             const int64_t       t_start = (int64_t) t->data;
             const int64_t       t_end   = t_start + ggml_nbytes(t);
@@ -1333,7 +1333,9 @@ struct ggml_cuda_concurrent_event {
 
         bool writes_overlap = false;
         bool dependent_srcs = false;
-        for (const auto & [tensor, stream] : stream_mapping) {
+        for (const auto & kv : stream_mapping) {
+            const ggml_tensor * const tensor = kv.first;
+            const int stream = kv.second;
             const ggml_tensor * t = tensor->view_src ? tensor->view_src : tensor;
             const int64_t       t_start = (int64_t) t->data;
             const int64_t       t_end   = t_start + ggml_nbytes(t);
@@ -1457,7 +1459,9 @@ struct ggml_backend_cuda_context {
     // Check if any CUDA graph is enabled for this context (used by kernels that need to know
     // if graphs are in use without having access to the specific graph key)
     bool any_cuda_graph_enabled() const {
-        for (const auto & [key, graph] : cuda_graphs) {
+        for (const auto & _kv_kg : cuda_graphs) {
+            const void * const key = _kv_kg.first;
+            const std::unique_ptr<ggml_cuda_graph> & graph = _kv_kg.second;
             if (graph && graph->is_enabled()) {
                 return true;
             }
@@ -1467,7 +1471,9 @@ struct ggml_backend_cuda_context {
 
     // Check if any CUDA graph has an instance for this context
     bool any_cuda_graph_has_instance() const {
-        for (const auto & [key, graph] : cuda_graphs) {
+        for (const auto & _kv_kg2 : cuda_graphs) {
+            const void * const key = _kv_kg2.first;
+            const std::unique_ptr<ggml_cuda_graph> & graph = _kv_kg2.second;
             if (graph && graph->instance != nullptr) {
                 return true;
             }

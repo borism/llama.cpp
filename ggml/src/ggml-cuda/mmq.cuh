@@ -450,7 +450,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
                 continue;
             }
 
-            if constexpr (type == GGML_TYPE_NVFP4) {
+            if (type == GGML_TYPE_NVFP4) {
                 if (y_scale_used) {
                     dst[ids_dst[j]*stride + i] = y_scale[j] * sum[(j0/nwarps) * (I/warp_size) + i0/warp_size];
                 } else {
@@ -503,7 +503,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_write_back_mma(
                     continue;
                 }
 
-                if constexpr (type == GGML_TYPE_NVFP4) {
+                if (type == GGML_TYPE_NVFP4) {
                     if (y_scale_used) {
                         dst[ids_dst[j]*stride + i] = y_scale[j] * sum[(j0/tile_C::J + n)*tile_C::ne + l];
                     } else {
@@ -944,7 +944,7 @@ static __device__ __forceinline__ void mul_mat_q_process_tile(
 // The mul_mat_q kernel implements "stream-k" work partitioning as described in https://arxiv.org/abs/2301.03598
 
 template <ggml_type type, int J, bool fallback>
-__launch_bounds__(ggml_cuda_mmq_get_nthreads(type, J, fallback), ggml_cuda_mmq_get_occupancy(type, J, fallback))
+//__launch_bounds__(ggml_cuda_mmq_get_nthreads(type, J, fallback), ggml_cuda_mmq_get_occupancy(type, J, fallback))
 static __global__ void mul_mat_q(
         const char * __restrict__ x, const int * __restrict__ y, const int32_t * __restrict__ ids_dst,
         const int32_t * __restrict__ expert_bounds, float * __restrict__ dst, float * __restrict__ tmp_fixup,
@@ -983,7 +983,7 @@ static __global__ void mul_mat_q(
     }
     __syncthreads();
 
-    if constexpr (!ggml_cuda_mmq_get_stream_k(type, J, fallback)) {
+    if (!ggml_cuda_mmq_get_stream_k(type, J, fallback)) {
         const uint2 tmp2 = fast_div_modulo(blockIdx.z, nchannels_y);
         const int wt = tmp2.x;
         const int zt = tmp2.y;
@@ -997,7 +997,7 @@ static __global__ void mul_mat_q(
         int offset_y       = wt*stride_sample_y   + zt*stride_channel_y;
         int offset_dst     = wt*stride_sample_dst + zt*stride_channel_dst + jt*J*stride_col_dst;
         int offset_y_scale;
-        if constexpr (type == GGML_TYPE_NVFP4) {
+        if (type == GGML_TYPE_NVFP4) {
             offset_y_scale = wt*nchannels_y.z*ncols_y + zt*ncols_y;
         } else {
             GGML_UNUSED(offset_y_scale);
@@ -1010,7 +1010,7 @@ static __global__ void mul_mat_q(
 
             offset_y   = 0;
             offset_dst = 0;
-            if constexpr (type == GGML_TYPE_NVFP4) {
+            if (type == GGML_TYPE_NVFP4) {
                 offset_y_scale = 0;
             }
 
@@ -1035,7 +1035,7 @@ static __global__ void mul_mat_q(
         offset_y   += (col_low + jt*J)*(sizeof(block_q8_1_mmq)/sizeof(int));
         offset_dst += it*I;
         const float * y_scale_tile = nullptr;
-        if constexpr (type == GGML_TYPE_NVFP4) {
+        if (type == GGML_TYPE_NVFP4) {
             offset_y_scale += col_low + jt*J;
             y_scale_tile = y_scale ? y_scale + offset_y_scale : nullptr;
         }
@@ -1085,7 +1085,7 @@ static __global__ void mul_mat_q(
         int offset_y       = wt*stride_sample_y   + zt*stride_channel_y;
         int offset_dst     = wt*stride_sample_dst + zt*stride_channel_dst + jt*J*stride_col_dst;
         int offset_y_scale;
-        if constexpr (type == GGML_TYPE_NVFP4) {
+        if (type == GGML_TYPE_NVFP4) {
             offset_y_scale = wt*nchannels_y.z*ncols_y + zt*ncols_y;
         } else {
             GGML_UNUSED(offset_y_scale);
@@ -1098,7 +1098,7 @@ static __global__ void mul_mat_q(
 
             offset_y   = 0;
             offset_dst = 0;
-            if constexpr (type == GGML_TYPE_NVFP4) {
+            if (type == GGML_TYPE_NVFP4) {
                 offset_y_scale = 0;
             }
 
@@ -1129,7 +1129,7 @@ static __global__ void mul_mat_q(
         offset_y += (col_low + jt * J) * (sizeof(block_q8_1_mmq) / sizeof(int));
         offset_dst += it*I;
         const float * y_scale_tile = nullptr;
-        if constexpr (type == GGML_TYPE_NVFP4) {
+        if (type == GGML_TYPE_NVFP4) {
             offset_y_scale += col_low + jt * J;
             y_scale_tile = y_scale ? y_scale + offset_y_scale : nullptr;
         }
@@ -1174,7 +1174,7 @@ static __global__ void mul_mat_q(
     int offset_y       = wt*stride_sample_y   + zt*stride_channel_y;
     int offset_dst     = wt*stride_sample_dst + zt*stride_channel_dst + jt*J*stride_col_dst;
     int offset_y_scale;
-    if constexpr (type == GGML_TYPE_NVFP4) {
+    if (type == GGML_TYPE_NVFP4) {
         offset_y_scale = wt*nchannels_y.z*ncols_y + zt*ncols_y;
     } else {
         GGML_UNUSED(offset_y_scale);
@@ -1187,7 +1187,7 @@ static __global__ void mul_mat_q(
 
         offset_y   = 0;
         offset_dst = 0;
-        if constexpr (type == GGML_TYPE_NVFP4) {
+        if (type == GGML_TYPE_NVFP4) {
             offset_y_scale = 0;
         }
 
@@ -1213,7 +1213,7 @@ static __global__ void mul_mat_q(
     offset_y += (col_low + jt * J) * (sizeof(block_q8_1_mmq) / sizeof(int));
     offset_dst += it*I;
     const float * y_scale_tile = nullptr;
-    if constexpr (type == GGML_TYPE_NVFP4) {
+    if (type == GGML_TYPE_NVFP4) {
         offset_y_scale += col_low + jt * J;
         y_scale_tile = y_scale ? y_scale + offset_y_scale : nullptr;
     }
@@ -1231,7 +1231,7 @@ static __global__ void mul_mat_q(
 }
 
 template <ggml_type type, int J, bool fallback>
-__launch_bounds__(ggml_cuda_mmq_get_nthreads(type, J, fallback)/2, 1)
+//__launch_bounds__(ggml_cuda_mmq_get_nthreads(type, J, fallback)/2, 1)
 static __global__ void mul_mat_q_stream_k_fixup(
         const int32_t * __restrict__ ids_dst, const int32_t * __restrict__ expert_bounds, float * __restrict__ dst,
         float * __restrict__ tmp_last_tile, const uint3 blocks_per_ne00, const int nrows_x, const int ncols_dst,

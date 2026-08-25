@@ -103,26 +103,18 @@ if (CUDAToolkit_FOUND)
     list(APPEND GGML_HEADERS_CUDA "../../include/ggml-cuda.h")
 
     file(GLOB   GGML_SOURCES_CUDA "*.cu")
-    file(GLOB   SRCS "template-instances/fattn-tile*.cu")
-    list(APPEND GGML_SOURCES_CUDA ${SRCS})
-    file(GLOB   SRCS "template-instances/fattn-mma*.cu")
-    list(APPEND GGML_SOURCES_CUDA ${SRCS})
+    # Flash attention (tile/mma/vec) is disabled on this board: this CUDA 10 /
+    # C++14 build cannot use if-constexpr, and fattn-tile.cuh's per-config
+    # validity checks rely on it throughout -- confirmed broken even for a
+    # plain symmetric head dim (40/40), not just DeepSeek-MLA's asymmetric
+    # combos. ggml_cuda_flash_attn_ext_supported() (fattn.cu) always returns
+    # false now, so llama.cpp uses its unfused attention path instead; none
+    # of these explicit template instantiations are reachable, so they're
+    # excluded from the build rather than fought file by file.
     file(GLOB   SRCS "template-instances/mmq*.cu")
     list(APPEND GGML_SOURCES_CUDA ${SRCS})
     file(GLOB   SRCS "template-instances/mmf*.cu")
     list(APPEND GGML_SOURCES_CUDA ${SRCS})
-
-    if (GGML_CUDA_FA_ALL_QUANTS)
-        file(GLOB   SRCS "template-instances/fattn-vec*.cu")
-        list(APPEND GGML_SOURCES_CUDA ${SRCS})
-        add_compile_definitions(GGML_CUDA_FA_ALL_QUANTS)
-    else()
-        list(APPEND GGML_SOURCES_CUDA
-            template-instances/fattn-vec-instance-f16-f16.cu
-            template-instances/fattn-vec-instance-q4_0-q4_0.cu
-            template-instances/fattn-vec-instance-q8_0-q8_0.cu
-            template-instances/fattn-vec-instance-bf16-bf16.cu)
-    endif()
 
     ggml_add_backend_library(ggml-cuda
                              ${GGML_HEADERS_CUDA}
@@ -164,7 +156,7 @@ if (CUDAToolkit_FOUND)
                 target_link_libraries(ggml-cuda PRIVATE  CCCL::CCCL)
             endif()
             if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL "10.1")
-                target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static CUDA::cublasLt_static)
+                target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static )
             else()
                 target_link_libraries(ggml-cuda PRIVATE  CUDA::cudart_static CUDA::cublas_static)
             endif()
@@ -194,7 +186,11 @@ if (CUDAToolkit_FOUND)
 
     set(CUDA_CXX_FLAGS "")
 
-    set(CUDA_FLAGS -use_fast_math -extended-lambda)
+    if (CUDAToolkit_VERSION VERSION_LESS "11.0")
+        set(CUDA_FLAGS -use_fast_math --expt-extended-lambda)
+    else()
+        set(CUDA_FLAGS -use_fast_math -extended-lambda)
+    endif()
 
     if (GGML_CUDA_DEBUG)
         list(APPEND CUDA_FLAGS -lineinfo)

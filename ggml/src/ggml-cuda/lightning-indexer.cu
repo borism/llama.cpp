@@ -75,7 +75,7 @@ static __global__ void lightning_indexer_kernel_wmma(
 
     constexpr int n_k = K_VECS_PER_BLOCK * (N_EMBD / 4);
 
-    if constexpr (TYPE_K == GGML_TYPE_F16) {
+    if (TYPE_K == GGML_TYPE_F16) {
 #pragma unroll
         for (int i_k = tid; i_k < n_k; i_k += THREADS_PER_BLOCK) {
             const int i_k_vec = i_k / (N_EMBD / 4);
@@ -272,7 +272,7 @@ static __global__ void lightning_indexer_kernel_vec(
 
     float4 k_reg_f[K_VECS_PER_WARP];
 
-    if constexpr (TYPE_K == GGML_TYPE_F32) {
+    if (TYPE_K == GGML_TYPE_F32) {
         // direct copy of float4
 #pragma unroll
         for (int k = 0; k < K_VECS_PER_WARP; ++k) {

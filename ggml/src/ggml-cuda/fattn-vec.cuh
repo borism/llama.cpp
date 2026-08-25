@@ -17,7 +17,7 @@ static constexpr __device__ int ggml_cuda_fattn_vec_get_nthreads_device() {
 #pragma clang diagnostic ignored "-Wpass-failed"
 #endif // __clang__
 template<int D, int ncols, ggml_type type_K, ggml_type type_V, bool use_logit_softcap> // D == head size
-__launch_bounds__(ggml_cuda_fattn_vec_get_nthreads_device(), 1)
+//__launch_bounds__(ggml_cuda_fattn_vec_get_nthreads_device(), 1)
 static __global__ void flash_attn_ext_vec(
         const char * Q_ptr,
         const char * K_ptr,
@@ -117,7 +117,7 @@ static __global__ void flash_attn_ext_vec(
     static_assert(D % (2*WARP_SIZE) == 0, "D not divisible by 2*WARP_SIZE == 64.");
     constexpr int nwarps = nthreads / WARP_SIZE;
     const int tid = WARP_SIZE*threadIdx.y + threadIdx.x;
-    __builtin_assume(tid < nthreads);
+    //__builtin_assume(tid < nthreads);
 
     constexpr int ne_KQ      = ncols*D;
     constexpr int ne_combine = nwarps*V_cols_per_iter*D;
@@ -147,7 +147,7 @@ static __global__ void flash_attn_ext_vec(
     float2  Q_ds[ncols][1 > D/(sizeof(int)*nthreads_KQ) ? 1 : D/(sizeof(int)*nthreads_KQ)];
 
     ggml_cuda_pdl_sync();
-    if constexpr (Q_q8_1) {
+    if (Q_q8_1) {
 #pragma unroll
         for (int j0 = 0; j0 < ncols; j0 += nwarps) {
             const int j = j0 + threadIdx.y;
@@ -334,7 +334,7 @@ static __global__ void flash_attn_ext_vec(
 #pragma unroll
             for (int i_VKQ_0 = 0; i_VKQ_0 < D/2; i_VKQ_0 += nthreads_V*V_rows_per_thread/2) {
                 half2 tmp[V_rows_per_thread/2];
-                if constexpr (type_V == GGML_TYPE_BF16) {
+                if (type_V == GGML_TYPE_BF16) {
                     float2 tmp_f[V_rows_per_thread/2];
                     dequantize_V(V + k*nb21, tmp_f,
                         2*i_VKQ_0 + (nthreads_V == WARP_SIZE ? threadIdx.x : threadIdx.x % nthreads_V)*V_rows_per_thread);

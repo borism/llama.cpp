@@ -646,7 +646,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
         KQ_max_new[jc0] = warp_reduce_max<warp_size>(KQ_max_new[jc0]);
     }
 
-    if constexpr (np == 1) {
+    if (np == 1) {
         __syncthreads();
     } else {
         static_assert(cpw == 1, "bad cpw");
@@ -789,7 +789,7 @@ static __device__ __forceinline__ void flash_attn_tile_iter(
 }
 
 template<int DKQ, int DV, int ncols1, int ncols2, bool use_logit_softcap> // D == head size
-__launch_bounds__(ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, ncols1*ncols2), ggml_cuda_fattn_tile_get_occupancy(DKQ, DV, ncols1*ncols2))
+//__launch_bounds__(ggml_cuda_fattn_tile_get_nthreads(DKQ, DV, ncols1*ncols2), ggml_cuda_fattn_tile_get_occupancy(DKQ, DV, ncols1*ncols2))
 static __global__ void flash_attn_tile(
         const char * Q_ptr,
         const char * K_ptr,
@@ -983,7 +983,7 @@ static __global__ void flash_attn_tile(
         KQ_sum[jc0] = warp_reduce_sum<warp_size>(KQ_sum[jc0]);
     }
 
-    if constexpr (np > 1) {
+    if (np > 1) {
         static_assert(cpw == 1, "bad cpw");
         static_assert(nbatch_fa*nbatch_K >= nwarps*DVp, "KV_tmp too small");
 
@@ -1156,7 +1156,7 @@ static void launch_fattn_tile_switch_ncols1(ggml_backend_cuda_context & ctx, ggm
     constexpr size_t nbytes_shared = 0;
 
 #ifdef GGML_USE_HIP
-    if constexpr (DKQ <= 128) {
+    if (DKQ <= 128) {
         if (Q->ne[1] > 32/ncols2) {
             constexpr int cols_per_block = 64;
             const int nwarps    = ggml_cuda_fattn_tile_get_nthreads (DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1170,7 +1170,7 @@ static void launch_fattn_tile_switch_ncols1(ggml_backend_cuda_context & ctx, ggm
 #endif // GGML_USE_HIP
 
 #ifndef GGML_USE_HIP
-    if constexpr (DKQ <= 256)
+    if (DKQ <= 256)
 #endif // GGML_USE_HIP
     {
         if (Q->ne[1] > 16/ncols2) {
@@ -1184,7 +1184,7 @@ static void launch_fattn_tile_switch_ncols1(ggml_backend_cuda_context & ctx, ggm
         }
     }
 
-    if constexpr (ncols2 <= 16) {
+    if (ncols2 <= 16) {
         if (Q->ne[1] > 8/ncols2) {
             constexpr int cols_per_block = 16;
             const int nwarps    = ggml_cuda_fattn_tile_get_nthreads (DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1196,7 +1196,7 @@ static void launch_fattn_tile_switch_ncols1(ggml_backend_cuda_context & ctx, ggm
         }
     }
 
-    if constexpr (ncols2 <= 8) {
+    if (ncols2 <= 8) {
         if (Q->ne[1] > 4/ncols2) {
             constexpr int cols_per_block = 8;
             const int nwarps    = ggml_cuda_fattn_tile_get_nthreads (DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1208,7 +1208,7 @@ static void launch_fattn_tile_switch_ncols1(ggml_backend_cuda_context & ctx, ggm
         }
     }
 
-    if constexpr (ncols2 <= 4) {
+    if (ncols2 <= 4) {
         if (Q->ne[1] > 2/ncols2) {
             constexpr int cols_per_block = 4;
             const int nwarps    = ggml_cuda_fattn_tile_get_nthreads (DKQ, DV, cols_per_block, cc) / warp_size;
@@ -1220,7 +1220,7 @@ static void launch_fattn_tile_switch_ncols1(ggml_backend_cuda_context & ctx, ggm
         }
     }
 
-    if constexpr (ncols2 <= 2) {
+    if (ncols2 <= 2) {
         constexpr int cols_per_block = 2;
         const int nwarps    = ggml_cuda_fattn_tile_get_nthreads (DKQ, DV, cols_per_block, cc) / warp_size;
         const int nbatch_fa = ggml_cuda_fattn_tile_get_nbatch_fa(DKQ, DV, cols_per_block, cc);
@@ -1252,7 +1252,7 @@ static void launch_fattn_tile_switch_ncols2(ggml_backend_cuda_context & ctx, ggm
     const int gqa_limit = nvidia && gqa_ratio <= 4 && DV <= 256 ? 16 : INT_MAX;
     const bool use_gqa_opt = mask && max_bias == 0.0f && Q->ne[1] <= gqa_limit && K->ne[1] % FATTN_KQ_STRIDE == 0;
 
-    if constexpr (DKQ == 320) {
+    if (DKQ == 320) {
         // This branch is only used for Mistral Small 4 which has a GQA ratio of 32.
         // On AMD, simply use that GQA ratio with 32 columns / block since we always have enough SRAM.
         // On NVIDIA however, the tile kernel is only used for GPUs that can't use the mma kernel (Pascal and older).
@@ -1271,7 +1271,7 @@ static void launch_fattn_tile_switch_ncols2(ggml_backend_cuda_context & ctx, ggm
         GGML_ABORT("flash-attn tile (320/256): expected GQA ratio multiple of 32");
     }
 
-    if constexpr (DKQ == 576) {
+    if (DKQ == 576) {
         if (use_gqa_opt && gqa_ratio % 16 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 16, use_logit_softcap>(ctx, dst);
             return;
@@ -1282,7 +1282,7 @@ static void launch_fattn_tile_switch_ncols2(ggml_backend_cuda_context & ctx, ggm
         }
     }
 
-    if constexpr (DKQ == 192) {
+    if (DKQ == 192) {
         // MiMo-V2.5 / V2.5-Pro / V2-Flash: gqa_ratio is 8 (SWA) or 16 (full attn)
         if (use_gqa_opt && gqa_ratio % 16 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 16, use_logit_softcap>(ctx, dst);
@@ -1295,7 +1295,7 @@ static void launch_fattn_tile_switch_ncols2(ggml_backend_cuda_context & ctx, ggm
         GGML_ABORT("flash-attn tile (192/128): expected GQA ratio multiple of 8");
     }
 
-    if constexpr (DKQ <= 512 && DKQ != 320 && DKQ != 192) {
+    if (DKQ <= 512 && DKQ != 320 && DKQ != 192) {
         if (use_gqa_opt && gqa_ratio % 8 == 0) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 8, use_logit_softcap>(ctx, dst);
             return;
@@ -1311,7 +1311,7 @@ static void launch_fattn_tile_switch_ncols2(ggml_backend_cuda_context & ctx, ggm
             return;
         }
 
-        if constexpr (DV <= 256) {
+        if (DV <= 256) {
             launch_fattn_tile_switch_ncols1<DKQ, DV, 1, use_logit_softcap>(ctx, dst);
             return;
         }

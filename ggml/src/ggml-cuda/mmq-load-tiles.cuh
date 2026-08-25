@@ -1643,7 +1643,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     for (int i0 = 0; i0 < I; i0 += rows_per_warp * nwarps) {
         int i = i0 + threadIdx.y * rows_per_warp + row_in_warp;
 
-        if constexpr (fallback) {
+        if (fallback) {
             i = min(i, i_max);
         }
 
@@ -1687,7 +1687,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     for (int i0 = 0; i0 < I; i0 += rows_per_warp * nwarps) {
         int i = i0 + threadIdx.y * rows_per_warp + row_in_warp;
 
-        if constexpr (fallback) {
+        if (fallback) {
             i = min(i, i_max);
         }
 
@@ -1741,7 +1741,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     for (int i0 = 0; i0 < I; i0 += rows_per_warp * nwarps) {
         int i = i0 + threadIdx.y * rows_per_warp + row_in_warp;
 
-        if constexpr (fallback) {
+        if (fallback) {
             i = min(i, i_max);
         }
 

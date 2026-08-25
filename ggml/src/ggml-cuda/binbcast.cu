@@ -83,8 +83,8 @@ static __global__ void k_bin_bcast(const src0_t *         src0,
         const uint32_t i10 = fastmodulo(i0, ne10);
 
         float result = src0_row ? (float) src0_row[size_t(i0)*s00] : 0.0f;
-        if constexpr (sizeof...(src1_ptrs) > 0) {
-            result = (..., (result = bin_op(result, (float)src1s[i_src1 + size_t(i10)*s10])));
+        if (sizeof...(src1_ptrs) > 0) {
+            { int _fold_dummy[] = { 0, (result = bin_op(result, (float)src1s[i_src1 + size_t(i10)*s10]), 0)... }; (void) _fold_dummy; }
         } else {
             result = bin_op(result, (float)src1[i_src1 + size_t(i10)*s10]);
         }
@@ -155,8 +155,8 @@ static __global__ void k_bin_bcast_unravel(const src0_t *         src0,
 
     ggml_cuda_pdl_sync();
     float result = src0_row ? (float) src0_row[size_t(i0)*s00] : 0.0f;
-    if constexpr (sizeof...(src1_ptrs) > 0) {
-        result = (..., (result = bin_op(result, (float)src1s[i_src1 + size_t(i10)*s10])));
+    if (sizeof...(src1_ptrs) > 0) {
+        { int _fold_dummy[] = { 0, (result = bin_op(result, (float)src1s[i_src1 + size_t(i10)*s10]), 0)... }; (void) _fold_dummy; }
     } else {
         result = bin_op(result, (float)src1[i_src1 + size_t(i10)*s10]);
     }
