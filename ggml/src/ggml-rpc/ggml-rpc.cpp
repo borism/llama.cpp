@@ -1472,11 +1472,32 @@ bool rpc_server::set_tensor(const std::vector<uint8_t> & input) {
         uint64_t hash = fnv_hash((const uint8_t*)data, size);
         char hash_str[17];
         snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, hash);
-        // save to cache_dir/hash_str
+        // write to a temp file first and rename it onto the final name, so a
+        // crash or a full disk never leaves a truncated file under the hash name
         fs::path cache_file = fs::path(cache_dir) / hash_str;
-        std::ofstream ofs(cache_file, std::ios::binary);
-        ofs.write((const char *)data, size);
-        GGML_LOG_INFO("[%s] saved to '%s'\n", __func__, cache_file.string().c_str());
+        fs::path tmp_file   = fs::path(cache_dir) / (std::string(hash_str) + ".tmp");
+        std::error_code ec;
+        bool ok = false;
+        {
+            std::ofstream ofs(tmp_file, std::ios::binary);
+            ofs.write((const char *)data, size);
+            ok = ofs.good();
+            ofs.close();
+            ok = ok && !ofs.fail();
+        }
+        if (ok) {
+            fs::rename(tmp_file, cache_file, ec);
+            if (ec) {
+                GGML_LOG_WARN("[%s] failed to rename '%s' to '%s': %s\n",
+                               __func__, tmp_file.string().c_str(), cache_file.string().c_str(), ec.message().c_str());
+                fs::remove(tmp_file, ec);
+            } else {
+                GGML_LOG_INFO("[%s] saved to '%s'\n", __func__, cache_file.string().c_str());
+            }
+        } else {
+            GGML_LOG_WARN("[%s] failed to write cache file '%s'\n", __func__, tmp_file.string().c_str());
+            fs::remove(tmp_file, ec);
+        }
     }
     ggml_backend_tensor_set(tensor, data, offset, size);
     return true;
@@ -1499,6 +1520,21 @@ bool rpc_server::get_cached_file(uint64_t hash, std::vector<uint8_t> & data) {
     ifs.seekg(0, std::ios::beg);
     data.resize(size);
     ifs.read((char *)data.data(), size);
+    if (!ifs.good()) {
+        GGML_LOG_WARN("[%s] failed to read cache file '%s'\n", __func__, cache_file.string().c_str());
+        data.clear();
+        fs::remove(cache_file, ec);
+        return false;
+    }
+    // the cache has no protocol-level size check, so a truncated file would
+    // otherwise be served as valid data; re-hash to catch that
+    uint64_t actual_hash = fnv_hash(data.data(), data.size());
+    if (actual_hash != hash) {
+        GGML_LOG_WARN("[%s] hash mismatch for '%s', removing corrupt cache file\n", __func__, cache_file.string().c_str());
+        data.clear();
+        fs::remove(cache_file, ec);
+        return false;
+    }
     return true;
 }
 
