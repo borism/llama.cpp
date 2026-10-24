@@ -19,6 +19,8 @@
 #endif
 #include <cstdlib>
 #include <cstring>
+#include <thread>
+#include <chrono>
 #include <mutex>
 #include <optional>
 
@@ -573,9 +575,20 @@ bool socket_t::impl::recv_data(void * data, size_t size) {
     }
 #endif
     size_t bytes_recv = 0;
+    int notconn_retries = 0;
     while (bytes_recv < size) {
         size_t size_to_recv = std::min(size - bytes_recv, MAX_CHUNK_SIZE);
         ssize_t n = recv(fd, (char *)data + bytes_recv, size_to_recv, 0);
+        if (n < 0 && errno == ENOTCONN && notconn_retries < 50) {
+            // Freshly-accepted sockets have been observed to briefly
+            // report ENOTCONN on macOS (seen on both a physical Ethernet
+            // adapter and the native Thunderbolt Bridge interface) before
+            // the kernel's connection state catches up. Retry instead of
+            // failing outright.
+            notconn_retries++;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
         if (n < 0) {
             LOG_ERROR("recv failed (bytes_recv=%zu, size_to_recv=%zu)\n",
                            bytes_recv, size_to_recv);
@@ -719,8 +732,11 @@ socket_ptr socket_t::accept() {
         return nullptr;
     }
     if (!set_no_delay(client_socket_fd)) {
-        LOG_ERROR("Failed to set TCP_NODELAY\n");
-        return nullptr;
+        // TCP_NODELAY is a performance optimization (disables Nagle), not
+        // required for correctness -- a failure here (e.g. EINVAL seen on
+        // some macOS bridged/virtual interfaces) should not drop the
+        // connection.
+        LOG_WARN("Could not set TCP_NODELAY on accepted socket, continuing anyway\n");
     }
     LOG_DBG("[%s] accepted client connection\n", __func__);
     return socket_ptr(new socket_t(std::make_unique<impl>(client_socket_fd)));
@@ -760,8 +776,7 @@ socket_ptr socket_t::connect(const char * host, int port) {
         return nullptr;
     }
     if (!set_no_delay(sockfd)) {
-        LOG_ERROR("Failed to set TCP_NODELAY\n");
-        return nullptr;
+        LOG_WARN("Could not set TCP_NODELAY on client socket, continuing anyway\n");
     }
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
